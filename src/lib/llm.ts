@@ -319,22 +319,20 @@ async function readSse(body: ReadableStream<Uint8Array>, onData: (data: string) 
     buffer = events.pop() ?? "";
 
     for (const event of events) {
-      const data = event
-        .split("\n")
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).trim())
-        .join("\n");
-      if (data) await onData(data);
+      for (const line of event.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (data) await onData(data);
+      }
     }
   }
 
   if (buffer.trim()) {
-    const data = buffer
-      .split("\n")
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trim())
-      .join("\n");
-    if (data) await onData(data);
+    for (const line of buffer.split("\n")) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (data) await onData(data);
+    }
   }
 }
 
