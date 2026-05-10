@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { Agent, ChatMessage, ConversationResult, DebateResult, Provider, RecentItem } from "@/lib/types";
+import type { Agent, ChatMessage, ConversationResult, DebateResult, KnowledgeSource, Provider, RecentItem } from "@/lib/types";
 
 type Tab = "admin" | "chat" | "debate";
 type DebateMode =
@@ -30,6 +30,19 @@ export default function Home() {
   const [outputType, setOutputType] = useState<OutputType>("Decision Memo");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [personaTestInput, setPersonaTestInput] = useState("");
+  const [personaTestOutput, setPersonaTestOutput] = useState("");
+  const [sourceQuery, setSourceQuery] = useState("");
+  const [manualContentBySource, setManualContentBySource] = useState<Record<number, string>>({});
+  const [sourceForm, setSourceForm] = useState({
+    title: "",
+    url: "",
+    sourceType: "manual_source",
+    reliability: "high" as KnowledgeSource["reliability"],
+    priority: 2,
+    summary: "",
+    tags: ""
+  });
   const [conversationId, setConversationId] = useState<number | undefined>();
   const [question, setQuestion] = useState("");
   const [debate, setDebate] = useState<DebateResult | null>(null);
@@ -47,18 +60,28 @@ export default function Home() {
     () => agents.find((agent) => agent.id === selectedStudioAgentId) ?? agents[0],
     [agents, selectedStudioAgentId]
   );
+  const visibleStudioSources = useMemo(
+    () => filterSources(selectedStudioAgent?.knowledgeSources ?? [], sourceQuery),
+    [selectedStudioAgent?.knowledgeSources, sourceQuery]
+  );
 
   useEffect(() => {
-    fetch("/api/agents")
-      .then((res) => res.json())
-      .then((data: { agents: Agent[] }) => {
-        setAgents(data.agents);
-        setSelectedAgentId(data.agents[0]?.id ?? "tech");
-        setSelectedStudioAgentId(data.agents[0]?.id ?? "tech");
-      })
-      .catch((error: Error) => setNotice(error.message));
+    loadAgents();
     loadRecents();
   }, []);
+
+  async function loadAgents() {
+    try {
+      const res = await fetch("/api/agents");
+      const data = (await res.json()) as { agents?: Agent[]; error?: string };
+      if (!res.ok || !data.agents) throw new Error(data.error ?? "AI 설정을 불러오지 못했습니다.");
+      setAgents(data.agents);
+      setSelectedAgentId((current) => current || data.agents?.[0]?.id || "tech");
+      setSelectedStudioAgentId((current) => current || data.agents?.[0]?.id || "tech");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "AI 설정을 불러오지 못했습니다.");
+    }
+  }
 
   async function loadRecents() {
     try {
@@ -141,6 +164,181 @@ export default function Home() {
     } catch (error) {
       setChatMessages(nextMessages);
       setNotice(error instanceof Error ? error.message : "응답 생성 실패");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function askAgent(agentId: string, message: string, history: ChatMessage[] = [], saveConversation = true) {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agentId,
+        message,
+        history,
+        conversationId: saveConversation ? conversationId : undefined,
+        saveConversation
+      })
+    });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({ error: "응답 생성 실패" }));
+      throw new Error(data.error ?? "응답 생성 실패");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let answer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      answer += decoder.decode(value, { stream: true });
+    }
+
+    answer += decoder.decode();
+    return {
+      answer,
+      conversationId: res.headers.get("X-Conversation-Id")
+    };
+  }
+
+  async function comparePerspectives() {
+    const seed = latestUserQuestion(chatMessages) || chatInput.trim();
+    if (!seed || agents.length === 0) return;
+
+    setLoading(true);
+    setNotice("다른 페르소나 관점을 비교 중입니다.");
+    const baseMessages = chatMessages.length > 0 ? chatMessages : [{ role: "user", content: seed } satisfies ChatMessage];
+    setChatMessages(baseMessages);
+
+    try {
+      const otherAgents = agents.filter((agent) => agent.id !== selectedAgentId);
+      const answers: string[] = [];
+      for (const agent of otherAgents) {
+        const { answer } = await askAgent(agent.id, seed, [], false);
+        answers.push(`## ${agent.name}\n${answer}`);
+        setChatMessages([
+          ...baseMessages,
+          {
+            role: "assistant",
+            content: `# Compare Perspectives\n\n${answers.join("\n\n")}`
+          }
+        ]);
+      }
+      setNotice("관점 비교가 완료되었습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "관점 비교 실패");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function sendCurrentQuestionToDebate() {
+    const seed = latestUserQuestion(chatMessages) || chatInput.trim();
+    if (!seed) return;
+    setQuestion(seed);
+    setDebate(null);
+    setDebateDraft("");
+    setTab("debate");
+    setNotice("Solo Lens 질문을 Trinity Debate로 보냈습니다.");
+  }
+
+  async function runPersonaTest(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedStudioAgent || !personaTestInput.trim()) return;
+
+    setLoading(true);
+    setPersonaTestOutput("");
+    setNotice("");
+    try {
+      const { answer } = await askAgent(selectedStudioAgent.id, personaTestInput.trim(), [], false);
+      setPersonaTestOutput(answer);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Persona Test 실패");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function addKnowledgeSource(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedStudioAgent || !sourceForm.title.trim() || !sourceForm.url.trim() || !sourceForm.summary.trim()) return;
+
+    setLoading(true);
+    setNotice("");
+    try {
+      const res = await fetch("/api/knowledge-sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: selectedStudioAgent.id,
+          ...sourceForm
+        })
+      });
+      const data = (await res.json()) as { source?: KnowledgeSource; error?: string };
+      if (!res.ok || !data.source) throw new Error(data.error ?? "Knowledge Source 저장 실패");
+      setSourceForm({
+        title: "",
+        url: "",
+        sourceType: "manual_source",
+        reliability: "high",
+        priority: 2,
+        summary: "",
+        tags: ""
+      });
+      await loadAgents();
+      setNotice("Knowledge Source를 저장했습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Knowledge Source 저장 실패");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function ingestKnowledgeSource(source: KnowledgeSource, mode: "fetch" | "manual") {
+    const content = mode === "manual" ? manualContentBySource[source.id]?.trim() : "";
+    if (mode === "manual" && !content) return;
+
+    setLoading(true);
+    setNotice("");
+    try {
+      const res = await fetch(`/api/knowledge-sources/${source.id}/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mode === "manual" ? { content } : { fetchUrl: true })
+      });
+      const data = (await res.json()) as { source?: KnowledgeSource; error?: string };
+      if (!res.ok || !data.source) throw new Error(data.error ?? "원문 인덱싱 실패");
+      setManualContentBySource((current) => ({ ...current, [source.id]: "" }));
+      await loadAgents();
+      setNotice(`${source.title} 원문을 인덱싱했습니다.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "원문 인덱싱 실패");
+      await loadAgents();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function uploadKnowledgeFile(source: KnowledgeSource, file: File | null) {
+    if (!file) return;
+
+    setLoading(true);
+    setNotice("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`/api/knowledge-sources/${source.id}/ingest`, {
+        method: "POST",
+        body: form
+      });
+      const data = (await res.json()) as { source?: KnowledgeSource; error?: string };
+      if (!res.ok || !data.source) throw new Error(data.error ?? "파일 인덱싱 실패");
+      await loadAgents();
+      setNotice(`${file.name} 파일을 인덱싱했습니다.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "파일 인덱싱 실패");
+      await loadAgents();
     } finally {
       setLoading(false);
     }
@@ -244,8 +442,9 @@ export default function Home() {
           <span />
         </button>
         <div className="brand">
+          <span className="brandMark" aria-hidden="true" />
           <p className="eyebrow">One question. Three minds. One aligned decision.</p>
-          <h1>Trinity SZG</h1>
+          <h1>Trinity Eye</h1>
         </div>
       </header>
 
@@ -424,6 +623,145 @@ export default function Home() {
                   />
                 </section>
 
+                <section>
+                  <h3>Knowledge Source Manager</h3>
+                  <input
+                    className="sourceSearch"
+                    value={sourceQuery}
+                    placeholder="Search source title, summary, tags"
+                    onChange={(event) => setSourceQuery(event.target.value)}
+                  />
+                  <div className="sourceList">
+                    {visibleStudioSources.length === 0 ? (
+                      <p className="emptySmall">연결된 Knowledge Source가 없습니다.</p>
+                    ) : (
+                      visibleStudioSources.map((source) => (
+                        <article className="sourceItem" key={source.id}>
+                          <div>
+                            <strong>{source.title}</strong>
+                            <span>
+                              {source.sourceType} · {source.reliability} · P{source.priority} · {source.contentStatus}
+                              {source.chunkCount > 0 ? ` · ${source.chunkCount} chunks` : ""}
+                            </span>
+                          </div>
+                          <p>{source.summary}</p>
+                          {source.contentError ? <p className="sourceError">{source.contentError}</p> : null}
+                          <div className="sourceActions">
+                            <a href={source.url} target="_blank" rel="noreferrer">
+                              Source
+                            </a>
+                            <button type="button" onClick={() => ingestKnowledgeSource(source, "fetch")} disabled={loading}>
+                              Index URL
+                            </button>
+                          </div>
+                          <details className="manualIngest">
+                            <summary>Manual content / file upload</summary>
+                            <input
+                              type="file"
+                              accept=".pdf,.txt,.md,text/plain,application/pdf"
+                              onChange={(event) => {
+                                uploadKnowledgeFile(source, event.target.files?.[0] ?? null);
+                                event.currentTarget.value = "";
+                              }}
+                            />
+                            <textarea
+                              rows={5}
+                              value={manualContentBySource[source.id] ?? ""}
+                              placeholder="PDF나 접근 제한 페이지의 핵심 원문을 붙여넣으세요."
+                              onChange={(event) =>
+                                setManualContentBySource((current) => ({
+                                  ...current,
+                                  [source.id]: event.target.value
+                                }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() => ingestKnowledgeSource(source, "manual")}
+                              disabled={loading || !manualContentBySource[source.id]?.trim()}
+                            >
+                              Index Manual Text
+                            </button>
+                          </details>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                  <form className="sourceForm" onSubmit={addKnowledgeSource}>
+                    <div className="twoCols">
+                      <label>
+                        Title
+                        <input
+                          value={sourceForm.title}
+                          onChange={(event) => setSourceForm((current) => ({ ...current, title: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        URL
+                        <input
+                          value={sourceForm.url}
+                          onChange={(event) => setSourceForm((current) => ({ ...current, url: event.target.value }))}
+                        />
+                      </label>
+                    </div>
+                    <div className="sourceMetaGrid">
+                      <label>
+                        Source Type
+                        <input
+                          value={sourceForm.sourceType}
+                          onChange={(event) => setSourceForm((current) => ({ ...current, sourceType: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        Reliability
+                        <select
+                          value={sourceForm.reliability}
+                          onChange={(event) =>
+                            setSourceForm((current) => ({
+                              ...current,
+                              reliability: event.target.value as KnowledgeSource["reliability"]
+                            }))
+                          }
+                        >
+                          <option value="very_high">very_high</option>
+                          <option value="high">high</option>
+                          <option value="medium">medium</option>
+                          <option value="low">low</option>
+                        </select>
+                      </label>
+                      <label>
+                        Priority
+                        <input
+                          type="number"
+                          min="1"
+                          max="5"
+                          value={sourceForm.priority}
+                          onChange={(event) => setSourceForm((current) => ({ ...current, priority: Number(event.target.value) }))}
+                        />
+                      </label>
+                    </div>
+                    <label>
+                      Summary
+                      <textarea
+                        rows={4}
+                        value={sourceForm.summary}
+                        onChange={(event) => setSourceForm((current) => ({ ...current, summary: event.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Tags
+                      <input
+                        value={sourceForm.tags}
+                        placeholder="RAG, AI governance, UX research"
+                        onChange={(event) => setSourceForm((current) => ({ ...current, tags: event.target.value }))}
+                      />
+                    </label>
+                    <button className="primary" disabled={loading || !sourceForm.title.trim() || !sourceForm.url.trim()}>
+                      Add Source
+                    </button>
+                  </form>
+                </section>
+
                 <section className="twoCols">
                   <label>
                     Judgment Criteria
@@ -442,6 +780,64 @@ export default function Home() {
                     />
                   </label>
                 </section>
+
+                <section>
+                  <h3>Professional Reasoning</h3>
+                  <label>
+                    Response Template
+                    <textarea
+                      rows={7}
+                      value={selectedStudioAgent.responseTemplate}
+                      onChange={(event) => patchAgent(selectedStudioAgent.id, { responseTemplate: event.target.value })}
+                    />
+                  </label>
+                  <div className="twoCols">
+                    <label>
+                      Challenge Rules
+                      <textarea
+                        rows={8}
+                        value={selectedStudioAgent.challengeRules}
+                        onChange={(event) => patchAgent(selectedStudioAgent.id, { challengeRules: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Evidence Rules
+                      <textarea
+                        rows={8}
+                        value={selectedStudioAgent.evidenceRules}
+                        onChange={(event) => patchAgent(selectedStudioAgent.id, { evidenceRules: event.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Scorecard
+                    <textarea
+                      rows={6}
+                      value={selectedStudioAgent.scorecard}
+                      onChange={(event) => patchAgent(selectedStudioAgent.id, { scorecard: event.target.value })}
+                    />
+                  </label>
+                </section>
+
+                <section>
+                  <h3>Persona Test</h3>
+                  <form className="testPrompt" onSubmit={runPersonaTest}>
+                    <textarea
+                      rows={3}
+                      value={personaTestInput}
+                      onChange={(event) => setPersonaTestInput(event.target.value)}
+                      placeholder="AI 쇼핑 어시스턴트를 오프라인 매장에도 적용할 수 있을까?"
+                    />
+                    <button className="primary" disabled={loading || !personaTestInput.trim()}>
+                      Run Test
+                    </button>
+                  </form>
+                  {personaTestOutput ? (
+                    <div className="testOutput">
+                      <Markdownish text={personaTestOutput} />
+                    </div>
+                  ) : null}
+                </section>
               </article>
             ) : null}
           </div>
@@ -457,7 +853,7 @@ export default function Home() {
               <p>{selectedAgent?.description}</p>
             </div>
             <div className="lensMeta">
-              <span>Knowledge Pack: {selectedAgent?.knowledge.split("\n")[0]}</span>
+              <span>Knowledge Pack: {knowledgePackLabel(selectedAgent)}</span>
               <span>Response Style: {selectedAgent?.tone}</span>
             </div>
           </div>
@@ -500,6 +896,17 @@ export default function Home() {
                 Ask This Agent
               </button>
             </form>
+            <div className="lensActions">
+              <button type="button" onClick={comparePerspectives} disabled={loading || !hasQuestion(chatMessages, chatInput)}>
+                Compare Perspectives
+              </button>
+              <button type="button" onClick={sendCurrentQuestionToDebate} disabled={loading || !hasQuestion(chatMessages, chatInput)}>
+                Send to Trinity Debate
+              </button>
+              <button type="button" onClick={sendCurrentQuestionToDebate} disabled={loading || !hasQuestion(chatMessages, chatInput)}>
+                Save as Debate Seed
+              </button>
+            </div>
           </div>
           </section>
         </section>
@@ -510,18 +917,18 @@ export default function Home() {
           <div className="debateHeader panel">
             <div>
               <p className="eyebrow">Trinity Debate</p>
-              <h2>{question || "Frame the Question"}</h2>
-              <p>기술 가능성, 고객 가치, 사업 실행성을 동시에 검토합니다.</p>
+              <h2>{question || "정(Thesis), 반(Antithesis), 합(Synthesis)"}</h2>
+              <p>3개의 미래 예측 전문가 Agent가 기술 가능성, 고객 가치, 사업 실행성을 동시에 검토합니다.</p>
             </div>
             <div className="debateMetaGrid">
               <label>
                 Debate Mode
                 <select value={debateMode} onChange={(event) => setDebateMode(event.target.value as DebateMode)}>
                   {[
-                    "Balanced Debate",
-                    "Critical Review",
-                    "Opportunity Discovery",
-                    "Execution Planning",
+                    "Balanced",
+                    "Critical",
+                    "Opportunity",
+                    "Execution",
                     "Investment Review",
                     "C-Level Briefing"
                   ].map((item) => (
@@ -541,7 +948,7 @@ export default function Home() {
                 Output Type
                 <select value={outputType} onChange={(event) => setOutputType(event.target.value as OutputType)}>
                   {[
-                    "Executive Summary",
+                    "Summary",
                     "Decision Memo",
                     "Action Plan",
                     "Risk Review",
@@ -583,17 +990,7 @@ export default function Home() {
                   <h2>Debate Timeline</h2>
                   <span className="meta">{debate.turns.length}개 발언</span>
                 </div>
-                <div className="transcriptList">
-                  {debate.turns.map((turn, index) => (
-                    <article className={`debateMessage ${turn.agentId}`} key={`${turn.agentId}-${turn.round}-${index}`}>
-                      <div className="speaker">
-                        <strong>{turn.agentName}</strong>
-                        <span>{roundName(turn.round)}</span>
-                      </div>
-                      <Markdownish text={turn.content} />
-                    </article>
-                  ))}
-                </div>
+                <DebateStages debate={debate} />
               </section>
               <section className="panel conclusion">
                 <h2>Szg Synthesis</h2>
@@ -622,6 +1019,32 @@ function recentTitle(item: RecentItem) {
 
 function recentMeta(item: RecentItem) {
   return item.kind === "discussion" ? `${item.turnCount}개 발언` : `${item.agentName} · ${item.messageCount}개 메시지`;
+}
+
+function latestUserQuestion(messages: ChatMessage[]) {
+  return [...messages].reverse().find((message) => message.role === "user")?.content.trim() ?? "";
+}
+
+function hasQuestion(messages: ChatMessage[], input: string) {
+  return Boolean(input.trim() || latestUserQuestion(messages));
+}
+
+function knowledgePackLabel(agent: Agent | undefined) {
+  return (agent?.knowledge.split("\n")[0] ?? "").replace(/^Knowledge Pack:\s*/i, "") || "Not configured";
+}
+
+function filterSources(sources: KnowledgeSource[], query: string) {
+  const terms = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((term) => term.length >= 2);
+  if (terms.length === 0) return sources;
+  return sources.filter((source) => {
+    const text = [source.title, source.summary, source.sourceType, source.reliability, source.tags.join(" ")]
+      .join(" ")
+      .toLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
 }
 
 async function readEventStream(
@@ -672,6 +1095,96 @@ function roundName(round: DebateResult["turns"][number]["round"]) {
   if (round === "opening") return "1차 주장";
   if (round === "rebuttal") return "상호 반박";
   return "최종 입장";
+}
+
+function DebateStages({ debate }: { debate: DebateResult }) {
+  const opening = debate.turns.filter((turn) => turn.round === "opening");
+  const rebuttal = debate.turns.filter((turn) => turn.round === "rebuttal");
+  const final = debate.turns.filter((turn) => turn.round === "final");
+
+  return (
+    <div className="stageList">
+      <details className="stage" open>
+        <summary>
+          <strong>[1] Question Framing</strong>
+          <span>{debate.question}</span>
+        </summary>
+        <p>분석 대상을 기술 가능성, 고객 가치, 사업 실행성 관점으로 나눠 검토합니다.</p>
+      </details>
+      <details className="stage" open>
+        <summary>
+          <strong>[2] Evidence Scan</strong>
+          <span>근거 수준과 누락 자료</span>
+        </summary>
+        <Markdownish text={extractSection(debate.conclusion, "Evidence Scan")} />
+      </details>
+      <DebateStage index={3} title="Opening Views" turns={opening} />
+      <DebateStage index={4} title="Cross Challenge" turns={rebuttal} />
+      <DebateStage index={5} title="Refine Positions" turns={final} />
+      <details className="stage" open>
+        <summary>
+          <strong>[6] Score & Trade-off</strong>
+          <span>Agent별 점수와 핵심 이견</span>
+        </summary>
+        <Markdownish text={extractSection(debate.conclusion, "Score & Trade-off")} />
+      </details>
+      <details className="stage" open>
+        <summary>
+          <strong>[7] Consensus Map</strong>
+          <span>합의점, 이견, 리스크 정리</span>
+        </summary>
+        <Markdownish text={extractConsensusMap(debate.conclusion)} />
+      </details>
+      <details className="stage" open>
+        <summary>
+          <strong>[8] Trinity Synthesis</strong>
+          <span>최종 실행 결론</span>
+        </summary>
+        <Markdownish text={debate.conclusion} />
+      </details>
+    </div>
+  );
+}
+
+function DebateStage({ index, title, turns }: { index: number; title: string; turns: DebateResult["turns"] }) {
+  return (
+    <details className="stage" open>
+      <summary>
+        <strong>
+          [{index}] {title}
+        </strong>
+        <span>{turns.length}개 발언</span>
+      </summary>
+      <div className="transcriptList">
+        {turns.map((turn, turnIndex) => (
+          <article className={`debateMessage ${turn.agentId}`} key={`${turn.agentId}-${turn.round}-${turnIndex}`}>
+            <div className="speaker">
+              <strong>{turn.agentName}</strong>
+              <span>{roundName(turn.round)}</span>
+            </div>
+            <Markdownish text={turn.content} />
+          </article>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function extractConsensusMap(conclusion: string) {
+  const consensusSection = extractSection(conclusion, "Consensus Map", false);
+  if (consensusSection) return consensusSection;
+  const sections = ["합의", "이견", "리스크", "실행 조건", "판단 근거"];
+  const lines = conclusion.split("\n").filter((line) => sections.some((section) => line.includes(section)));
+  if (lines.length === 0) return "최종 결론에서 합의점, 남은 리스크, 다음 실행안을 확인하세요.";
+  return lines.slice(0, 12).join("\n");
+}
+
+function extractSection(conclusion: string, heading: string, fallback = true) {
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^##\\s+${escapedHeading}\\s*$([\\s\\S]*?)(?=^##\\s+|$)`, "im");
+  const section = conclusion.match(pattern)?.[1]?.trim();
+  if (section) return section;
+  return fallback ? `${heading} 정보는 최종 결론에 포함되어 있지 않습니다.` : "";
 }
 
 function Markdownish({ text }: { text: string }) {
