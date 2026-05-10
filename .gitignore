@@ -1,0 +1,9 @@
+node_modules
+.next
+.playwright-cli
+out
+data/*.db
+data/*.db-*
+.env
+.env*.local
+npm-debug.log*
