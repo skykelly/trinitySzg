@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createDebate, getAgents } from "@/lib/db";
+import { createDebate, getAgents, searchKnowledgeSources } from "@/lib/db";
 import { streamDebate } from "@/lib/debate";
 
 export const runtime = "nodejs";
@@ -17,7 +17,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "question이 필요합니다." }, { status: 400 });
     }
 
-    const agents = getAgents();
+    const agents = getAgents().map((agent) => ({
+      ...agent,
+      knowledgeSources: searchKnowledgeSources(question, agent.id, 6)
+    }));
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {

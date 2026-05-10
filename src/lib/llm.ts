@@ -13,6 +13,11 @@ type GenerateInput = {
     | "debateStyle"
     | "judgmentCriteria"
     | "debateBehavior"
+    | "responseTemplate"
+    | "challengeRules"
+    | "evidenceRules"
+    | "scorecard"
+    | "knowledgeSources"
   >;
   messages: ChatMessage[];
 };
@@ -38,6 +43,26 @@ export async function streamText({ agent, messages, onToken }: StreamInput): Pro
 }
 
 function fullSystemPrompt(agent: GenerateInput["agent"]): string {
+  const knowledgeSourceText =
+    "knowledgeSources" in agent && Array.isArray(agent.knowledgeSources) && agent.knowledgeSources.length > 0
+      ? agent.knowledgeSources
+          .slice()
+          .sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title))
+          .slice(0, 8)
+          .map(
+            (source) => {
+              const chunks =
+                source.chunks && source.chunks.length > 0
+                  ? `\n  Matched chunks:\n${source.chunks
+                      .map((chunk) => `  - Chunk ${chunk.chunkIndex + 1}: ${chunk.content.slice(0, 700)}`)
+                      .join("\n")}`
+                  : "";
+              return `- [${source.reliability} / P${source.priority}] ${source.title} (${source.sourceType})\n  ${source.summary}\n  URL: ${source.url}\n  Tags: ${source.tags.join(", ")}${chunks}`;
+            }
+          )
+          .join("\n")
+      : "No curated source summaries are currently linked.";
+
   return `${agent.systemPrompt}
 
 Description:
@@ -52,11 +77,32 @@ ${agent.debateStyle}
 Knowledge Pack:
 ${agent.knowledge}
 
+Curated Knowledge Sources:
+${knowledgeSourceText}
+
 Judgment Criteria:
 ${agent.judgmentCriteria}
 
 Debate Behavior:
-${agent.debateBehavior}`.trim();
+${agent.debateBehavior}
+
+Response Template:
+${agent.responseTemplate}
+
+Challenge Rules:
+${agent.challengeRules}
+
+Evidence Rules:
+${agent.evidenceRules}
+
+Scorecard:
+${agent.scorecard}
+
+When answering:
+- Follow the response template unless the user asks for a different format.
+- Separate evidence-backed statements from assumptions.
+- Include Evidence Level, Missing Evidence, and Next Validation when relevant.
+- Use the scorecard when making a recommendation or trade-off judgment.`.trim();
 }
 
 function geminiPayload(agent: GenerateInput["agent"], messages: ChatMessage[]) {

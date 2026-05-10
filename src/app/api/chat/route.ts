@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addMessage, createConversation, getAgent } from "@/lib/db";
+import { addMessage, createConversation, getAgent, searchKnowledgeSources } from "@/lib/db";
 import { streamText } from "@/lib/llm";
 import type { ChatMessage } from "@/lib/types";
 
@@ -12,6 +12,7 @@ export async function POST(request: Request) {
       message?: string;
       history?: ChatMessage[];
       conversationId?: number;
+      saveConversation?: boolean;
     };
 
     if (!body.agentId || !body.message?.trim()) {
@@ -22,25 +23,30 @@ export async function POST(request: Request) {
     if (!agent) {
       return NextResponse.json({ error: "AI를 찾을 수 없습니다." }, { status: 404 });
     }
+    const groundedAgent = {
+      ...agent,
+      knowledgeSources: searchKnowledgeSources(body.message.trim(), agent.id, 6)
+    };
 
+    const shouldSave = body.saveConversation !== false;
     const conversationId =
-      body.conversationId ?? createConversation(agent.id, body.message.trim().slice(0, 80) || "새 대화");
+      shouldSave && (body.conversationId ?? createConversation(agent.id, body.message.trim().slice(0, 80) || "새 대화"));
     const messages = [...(body.history ?? []), { role: "user", content: body.message.trim() } satisfies ChatMessage];
-    addMessage(conversationId, "user", body.message.trim());
+    if (conversationId) addMessage(conversationId, "user", body.message.trim());
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
           const answer = await streamText({
-            agent,
+            agent: groundedAgent,
             messages,
             onToken: (token) => {
               controller.enqueue(encoder.encode(token));
             }
           });
 
-          addMessage(conversationId, "assistant", answer);
+          if (conversationId) addMessage(conversationId, "assistant", answer);
           controller.close();
         } catch (error) {
           controller.error(error);
@@ -52,7 +58,7 @@ export async function POST(request: Request) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
-        "X-Conversation-Id": String(conversationId)
+        ...(conversationId ? { "X-Conversation-Id": String(conversationId) } : {})
       }
     });
   } catch (error) {
