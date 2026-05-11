@@ -682,9 +682,16 @@ export function getDebate(id: number): DebateResult | null {
 }
 
 export function listRecents(limit = 30): RecentItem[] {
-  const discussions: RecentItem[] = listDebates(limit).map((item) => ({ ...item, kind: "discussion" }));
-  const chats: RecentItem[] = listConversations(limit).map((item) => ({ ...item, kind: "chat" }));
-  return [...discussions, ...chats]
+  const discussions: RecentItem[] = listDebates(limit).map((item) => ({ ...item, kind: "discussion" as const }));
+  const chats: RecentItem[] = listConversations(limit).map((item) => ({ ...item, kind: "chat" as const }));
+  const answers: RecentItem[] = listSuperAgentAnswers(limit).map((item) => ({
+    kind: "answer" as const,
+    id: item.id,
+    question: item.question,
+    answerType: item.answerType,
+    createdAt: item.createdAt
+  }));
+  return [...discussions, ...chats, ...answers]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, limit);
 }

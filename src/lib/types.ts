@@ -122,9 +122,17 @@ export type ConversationResult = {
   createdAt: string;
 };
 
+export type SuperAgentAnswerSummary = {
+  id: string;
+  question: string;
+  answerType: string;
+  createdAt: string;
+};
+
 export type RecentItem =
   | ({ kind: "discussion" } & DebateSummary)
-  | ({ kind: "chat" } & ConversationSummary);
+  | ({ kind: "chat" } & ConversationSummary)
+  | ({ kind: "answer" } & SuperAgentAnswerSummary);
 
 export interface DebateInsight {
   id: string;

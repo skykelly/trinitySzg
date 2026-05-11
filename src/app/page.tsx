@@ -3,7 +3,17 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Agent, ChatMessage, ConversationResult, DebateInsight, DebateInsightStatus, DebateResult, KnowledgeSource, Provider, RecentItem } from "@/lib/types";
 
-type Tab = "admin" | "chat" | "debate";
+type SuperAnswerResult = {
+  answerId: string;
+  answerMarkdown: string;
+  references: {
+    knowledgeSources: Array<{ id: string; title: string; url: string }>;
+    debateInsights: Array<{ id: string; title: string; insightType: string }>;
+    agentOpinions: Array<{ id: string; claim: string; agentId: string }>;
+  };
+};
+
+type Tab = "admin" | "chat" | "debate" | "future";
 type DebateMode =
   | "Balanced Debate"
   | "Critical Review"
@@ -49,6 +59,25 @@ export default function Home() {
   const [debateDraft, setDebateDraft] = useState("");
   const [debateInsights, setDebateInsights] = useState<DebateInsight[] | null>(null);
   const [extractingInsights, setExtractingInsights] = useState(false);
+
+  // Future Life Agent
+  const [superQuestion, setSuperQuestion] = useState("");
+  const [superDomainId, setSuperDomainId] = useState("");
+  const [superTimeHorizon, setSuperTimeHorizon] = useState<"1y" | "3y" | "5y" | "10y">("3y");
+  const [superCustomerSegment, setSuperCustomerSegment] = useState("");
+  const [superOutputType, setSuperOutputType] = useState("future_life_answer");
+  const [superIncludeDebate, setSuperIncludeDebate] = useState(true);
+  const [superIncludeOpinions, setSuperIncludeOpinions] = useState(false);
+  const [superAnswer, setSuperAnswer] = useState<SuperAnswerResult | null>(null);
+  const [superLoading, setSuperLoading] = useState(false);
+
+  // Save as Agent Opinion
+  const [opinionFormIndex, setOpinionFormIndex] = useState<number | null>(null);
+  const [opinionClaim, setOpinionClaim] = useState("");
+  const [opinionRationale, setOpinionRationale] = useState("");
+  const [opinionConfidence, setOpinionConfidence] = useState<"high" | "medium" | "low">("medium");
+  const [opinionTags, setOpinionTags] = useState("");
+  const [opinionDomainId, setOpinionDomainId] = useState("");
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -440,6 +469,71 @@ export default function Home() {
     setNotice("모든 Draft Insight를 승인했습니다.");
   }
 
+  async function askSuperAgent(event: FormEvent) {
+    event.preventDefault();
+    if (!superQuestion.trim()) return;
+    setSuperLoading(true);
+    setSuperAnswer(null);
+    setNotice("");
+    try {
+      const res = await fetch("/api/super-agent/answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: superQuestion.trim(),
+          domainId: superDomainId.trim() || undefined,
+          timeHorizon: superTimeHorizon,
+          customerSegment: superCustomerSegment.trim() || undefined,
+          outputType: superOutputType,
+          includeDebateKnowledge: superIncludeDebate,
+          includeAgentOpinions: superIncludeOpinions
+        })
+      });
+      const data = (await res.json()) as SuperAnswerResult & { error?: string };
+      if (!res.ok || !data.answerMarkdown) throw new Error(data.error ?? "답변 생성 실패");
+      setSuperAnswer(data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "답변 생성 실패");
+    } finally {
+      setSuperLoading(false);
+    }
+  }
+
+  function openOpinionForm(index: number, content: string) {
+    setOpinionFormIndex(index);
+    setOpinionClaim(content.slice(0, 400));
+    setOpinionRationale("");
+    setOpinionConfidence("medium");
+    setOpinionTags("");
+    setOpinionDomainId("");
+  }
+
+  async function saveAgentOpinion(event: FormEvent) {
+    event.preventDefault();
+    if (!opinionClaim.trim()) return;
+    try {
+      const res = await fetch("/api/agent-opinions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: selectedAgentId,
+          question: latestUserQuestion(chatMessages),
+          claim: opinionClaim.trim(),
+          rationale: opinionRationale.trim() || undefined,
+          confidence: opinionConfidence,
+          tags: opinionTags,
+          domainId: opinionDomainId.trim() || undefined
+        })
+      });
+      const data = (await res.json()) as { opinion?: unknown; error?: string };
+      if (!res.ok || !data.opinion) throw new Error(data.error ?? "저장 실패");
+      setOpinionFormIndex(null);
+      setNotice("Agent Opinion을 저장했습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "저장 실패");
+    }
+  }
+
   function newDiscussion() {
     setTab("debate");
     setQuestion("");
@@ -461,6 +555,17 @@ export default function Home() {
         setDebate(data.debate);
         setDebateDraft("");
         setQuestion(data.debate.question);
+      } else if (item.kind === "answer") {
+        const res = await fetch(`/api/super-agent/answers/${item.id}`);
+        const data = (await res.json()) as { answer?: { answerMarkdown: string; id: string }; error?: string };
+        if (!res.ok || !data.answer) throw new Error(data.error ?? "답변을 불러오지 못했습니다.");
+        setTab("future");
+        setSuperQuestion(item.question);
+        setSuperAnswer({
+          answerId: data.answer.id,
+          answerMarkdown: data.answer.answerMarkdown,
+          references: { knowledgeSources: [], debateInsights: [], agentOpinions: [] }
+        });
       } else {
         const res = await fetch(`/api/conversations/${item.id}`);
         const data = (await res.json()) as { conversation?: ConversationResult; error?: string };
@@ -507,24 +612,27 @@ export default function Home() {
             </button>
           </div>
           <nav className="drawerNav">
-            <button className={tab === "debate" && !debate ? "active" : ""} onClick={newDiscussion}>
+            <button
+              className={tab === "future" ? "active" : ""}
+              onClick={() => setTab("future")}
+            >
+              Future Life Agent
+              <span className="navHint">고객 미래생활 분석</span>
+            </button>
+            <button className={tab === "debate" ? "active" : ""} onClick={() => { setTab("debate"); }}>
               Trinity Debate
-              <span className="navHint">AI간 토론</span>
+              <span className="navHint">관점 토론</span>
             </button>
             <button
               className={tab === "chat" ? "active" : ""}
-              onClick={() => {
-                setTab("chat");
-              }}
+              onClick={() => setTab("chat")}
             >
               Solo Lens
-              <span className="navHint">AI와 대화</span>
+              <span className="navHint">전문가 AI와 대화</span>
             </button>
             <button
               className={tab === "admin" ? "active" : ""}
-              onClick={() => {
-                setTab("admin");
-              }}
+              onClick={() => setTab("admin")}
             >
               Persona Studio
               <span className="navHint">학습/조정</span>
@@ -543,7 +651,7 @@ export default function Home() {
               ) : (
                 recents.map((item) => (
                   <button className="recentItem" key={`${item.kind}-${item.id}`} onClick={() => openRecent(item)}>
-                    <span className={`badge ${item.kind}`}>{item.kind === "discussion" ? "Discussion" : "Chat"}</span>
+                    <span className={`badge ${item.kind}`}>{item.kind === "discussion" ? "Debate" : item.kind === "answer" ? "Answer" : "Chat"}</span>
                     <strong>{recentTitle(item)}</strong>
                     <span>
                       {formatDate(item.createdAt)} · {recentMeta(item)}
@@ -935,6 +1043,47 @@ export default function Home() {
                 chatMessages.map((message, index) => (
                   <div className={`bubble ${message.role}`} key={`${message.role}-${index}`}>
                     {message.role === "assistant" ? <Markdownish text={message.content || "…"} /> : message.content}
+                    {message.role === "assistant" ? (
+                      <div className="bubbleActions">
+                        <button type="button" onClick={() => openOpinionForm(index, message.content)}>
+                          Save as Agent Opinion
+                        </button>
+                      </div>
+                    ) : null}
+                    {opinionFormIndex === index ? (
+                      <form className="opinionForm" onSubmit={saveAgentOpinion}>
+                        <label>
+                          Domain ID
+                          <input value={opinionDomainId} onChange={(e) => setOpinionDomainId(e.target.value)} placeholder="ai_home" />
+                        </label>
+                        <label>
+                          Claim
+                          <textarea rows={3} value={opinionClaim} onChange={(e) => setOpinionClaim(e.target.value)} />
+                        </label>
+                        <label>
+                          Rationale
+                          <textarea rows={2} value={opinionRationale} onChange={(e) => setOpinionRationale(e.target.value)} placeholder="근거 (선택)" />
+                        </label>
+                        <div className="twoCols">
+                          <label>
+                            Confidence
+                            <select value={opinionConfidence} onChange={(e) => setOpinionConfidence(e.target.value as "high" | "medium" | "low")}>
+                              <option value="high">high</option>
+                              <option value="medium">medium</option>
+                              <option value="low">low</option>
+                            </select>
+                          </label>
+                          <label>
+                            Tags
+                            <input value={opinionTags} onChange={(e) => setOpinionTags(e.target.value)} placeholder="AI, 쇼핑, UX" />
+                          </label>
+                        </div>
+                        <div className="opinionFormActions">
+                          <button className="primary" type="submit" disabled={!opinionClaim.trim()}>Save Opinion</button>
+                          <button type="button" onClick={() => setOpinionFormIndex(null)}>취소</button>
+                        </div>
+                      </form>
+                    ) : null}
                   </div>
                 ))
               )}
@@ -962,6 +1111,117 @@ export default function Home() {
             </div>
           </div>
           </section>
+        </section>
+      ) : null}
+
+      {tab === "future" ? (
+        <section className="stack">
+          <div className="sectionHead panel">
+            <div>
+              <p className="eyebrow">Future Life Agent</p>
+              <h2>AI로 인한 고객 미래 생활 변화 분석</h2>
+              <p>독립 Super Agent가 Archive, Evidence, Debate Insight를 종합해 독립적으로 답변합니다.</p>
+            </div>
+          </div>
+          <div className="futureLayout">
+            <form className="panel futureInput" onSubmit={askSuperAgent}>
+              <label>
+                Question
+                <textarea
+                  rows={3}
+                  value={superQuestion}
+                  onChange={(e) => setSuperQuestion(e.target.value)}
+                  placeholder="2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까?"
+                />
+              </label>
+              <div className="twoCols">
+                <label>
+                  Domain ID
+                  <input value={superDomainId} onChange={(e) => setSuperDomainId(e.target.value)} placeholder="ai_home" />
+                </label>
+                <label>
+                  Customer Segment
+                  <input value={superCustomerSegment} onChange={(e) => setSuperCustomerSegment(e.target.value)} placeholder="맞벌이 가구" />
+                </label>
+              </div>
+              <div className="twoCols">
+                <label>
+                  Time Horizon
+                  <select value={superTimeHorizon} onChange={(e) => setSuperTimeHorizon(e.target.value as "1y" | "3y" | "5y" | "10y")}>
+                    <option value="1y">1년</option>
+                    <option value="3y">3년</option>
+                    <option value="5y">5년</option>
+                    <option value="10y">10년</option>
+                  </select>
+                </label>
+                <label>
+                  Output Type
+                  <select value={superOutputType} onChange={(e) => setSuperOutputType(e.target.value)}>
+                    <option value="future_life_answer">Future Life Answer</option>
+                    <option value="scenario">Scenario</option>
+                    <option value="business_opportunity">Business Opportunity</option>
+                    <option value="executive_brief">Executive Brief</option>
+                  </select>
+                </label>
+              </div>
+              <div className="checkboxRow">
+                <label className="checkboxLabel">
+                  <input type="checkbox" checked={superIncludeDebate} onChange={(e) => setSuperIncludeDebate(e.target.checked)} />
+                  Include Debate Knowledge
+                </label>
+                <label className="checkboxLabel">
+                  <input type="checkbox" checked={superIncludeOpinions} onChange={(e) => setSuperIncludeOpinions(e.target.checked)} />
+                  Include Agent Opinions
+                </label>
+              </div>
+              <button className="primary" disabled={superLoading || !superQuestion.trim()}>
+                {superLoading ? "분석 중…" : "Ask Future Life Agent"}
+              </button>
+            </form>
+
+            {superAnswer ? (
+              <div className="futureAnswer">
+                <section className="panel">
+                  <Markdownish text={superAnswer.answerMarkdown} />
+                </section>
+                {(superAnswer.references.knowledgeSources.length > 0 ||
+                  superAnswer.references.debateInsights.length > 0 ||
+                  superAnswer.references.agentOpinions.length > 0) ? (
+                  <details className="panel referencesPanel">
+                    <summary><strong>참고한 지식</strong></summary>
+                    {superAnswer.references.knowledgeSources.length > 0 ? (
+                      <div className="refGroup">
+                        <p className="refGroupTitle">Knowledge Sources</p>
+                        {superAnswer.references.knowledgeSources.map((s) => (
+                          <a key={s.id} className="refItem" href={s.url} target="_blank" rel="noreferrer">{s.title}</a>
+                        ))}
+                      </div>
+                    ) : null}
+                    {superAnswer.references.debateInsights.length > 0 ? (
+                      <div className="refGroup">
+                        <p className="refGroupTitle">Debate Insights</p>
+                        {superAnswer.references.debateInsights.map((i) => (
+                          <span key={i.id} className="refItem">
+                            <span className="insightType">{i.insightType}</span> {i.title}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {superAnswer.references.agentOpinions.length > 0 ? (
+                      <div className="refGroup">
+                        <p className="refGroupTitle">Agent Opinions</p>
+                        {superAnswer.references.agentOpinions.map((o) => (
+                          <span key={o.id} className="refItem">
+                            <span className="insightBadge">{o.agentId}</span> {o.claim}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </details>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
@@ -1117,11 +1377,14 @@ function formatDate(value: string) {
 }
 
 function recentTitle(item: RecentItem) {
-  return item.kind === "discussion" ? item.question : item.title;
+  if (item.kind === "discussion" || item.kind === "answer") return item.question;
+  return item.title;
 }
 
 function recentMeta(item: RecentItem) {
-  return item.kind === "discussion" ? `${item.turnCount}개 발언` : `${item.agentName} · ${item.messageCount}개 메시지`;
+  if (item.kind === "discussion") return `${item.turnCount}개 발언`;
+  if (item.kind === "answer") return item.answerType;
+  return `${item.agentName} · ${item.messageCount}개 메시지`;
 }
 
 function latestUserQuestion(messages: ChatMessage[]) {
