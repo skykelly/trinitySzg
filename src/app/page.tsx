@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { Agent, ChatMessage, ConversationResult, DebateResult, KnowledgeSource, Provider, RecentItem } from "@/lib/types";
+import type { Agent, ChatMessage, ConversationResult, DebateInsight, DebateInsightStatus, DebateResult, KnowledgeSource, Provider, RecentItem } from "@/lib/types";
 
 type Tab = "admin" | "chat" | "debate";
 type DebateMode =
@@ -47,6 +47,8 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [debate, setDebate] = useState<DebateResult | null>(null);
   const [debateDraft, setDebateDraft] = useState("");
+  const [debateInsights, setDebateInsights] = useState<DebateInsight[] | null>(null);
+  const [extractingInsights, setExtractingInsights] = useState(false);
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -239,6 +241,7 @@ export default function Home() {
     setQuestion(seed);
     setDebate(null);
     setDebateDraft("");
+    setDebateInsights(null);
     setTab("debate");
     setNotice("Solo Lens 질문을 Trinity Debate로 보냈습니다.");
   }
@@ -352,6 +355,7 @@ export default function Home() {
     setNotice("토론을 진행 중입니다. 무료 API 상태에 따라 시간이 걸릴 수 있습니다.");
     setDebate(null);
     setDebateDraft("");
+    setDebateInsights(null);
 
     try {
       const res = await fetch("/api/debate", {
@@ -391,11 +395,57 @@ export default function Home() {
     }
   }
 
+  async function extractInsights() {
+    if (!debate) return;
+    setExtractingInsights(true);
+    setNotice("");
+    try {
+      const res = await fetch(`/api/debates/${debate.id}/extract-insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const data = (await res.json()) as { insights?: DebateInsight[]; error?: string };
+      if (!res.ok || !data.insights) throw new Error(data.error ?? "Insight 추출 실패");
+      setDebateInsights(data.insights);
+      setNotice(`${data.insights.length}개의 Insight를 추출했습니다.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Insight 추출 실패");
+    } finally {
+      setExtractingInsights(false);
+    }
+  }
+
+  async function updateInsightStatus(id: string, status: DebateInsightStatus) {
+    try {
+      const res = await fetch(`/api/debate-insights/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      const data = (await res.json()) as { insight?: DebateInsight; error?: string };
+      if (!res.ok || !data.insight) throw new Error(data.error ?? "상태 변경 실패");
+      setDebateInsights((prev) => prev?.map((item) => item.id === id ? data.insight! : item) ?? null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "상태 변경 실패");
+    }
+  }
+
+  async function approveAllInsights() {
+    if (!debateInsights) return;
+    const drafts = debateInsights.filter((item) => item.status === "draft");
+    for (const item of drafts) {
+      await updateInsightStatus(item.id, "approved");
+    }
+    setNotice("모든 Draft Insight를 승인했습니다.");
+  }
+
   function newDiscussion() {
     setTab("debate");
     setQuestion("");
     setDebate(null);
     setDebateDraft("");
+    setDebateInsights(null);
     setNotice("");
   }
 
@@ -998,7 +1048,57 @@ export default function Home() {
               <section className="panel conclusion">
                 <h2>Szg Synthesis</h2>
                 <Markdownish text={debate.conclusion} />
+                <div className="insightActions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={extractInsights}
+                    disabled={extractingInsights}
+                  >
+                    {extractingInsights ? "추출 중…" : "Extract Insights"}
+                  </button>
+                </div>
               </section>
+              {debateInsights ? (
+                <section className="panel insightPanel">
+                  <div className="sectionHead">
+                    <h2>Debate Insights</h2>
+                    <div className="insightHeadActions">
+                      <span className="meta">{debateInsights.length}개</span>
+                      {debateInsights.some((item) => item.status === "draft") ? (
+                        <button type="button" onClick={approveAllInsights}>
+                          Approve All
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="insightList">
+                    {debateInsights.map((insight) => (
+                      <article className={`insightItem status-${insight.status}`} key={insight.id}>
+                        <div className="insightMeta">
+                          <span className="insightType">{insight.insightType}</span>
+                          <span className="insightBadge">{insight.confidence} confidence</span>
+                          <span className="insightBadge">evidence: {insight.evidenceLevel}</span>
+                          <span className={`insightStatus ${insight.status}`}>{insight.status}</span>
+                        </div>
+                        <strong>{insight.title}</strong>
+                        <p>{insight.content}</p>
+                        {insight.tags.length > 0 ? (
+                          <div className="insightTags">
+                            {insight.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                          </div>
+                        ) : null}
+                        {insight.status === "draft" ? (
+                          <div className="insightItemActions">
+                            <button type="button" onClick={() => updateInsightStatus(insight.id, "approved")}>Approve</button>
+                            <button type="button" onClick={() => updateInsightStatus(insight.id, "rejected")}>Reject</button>
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
             </div>
           ) : null}
         </section>

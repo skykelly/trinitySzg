@@ -941,6 +941,105 @@ select:focus {
   text-underline-offset: 2px;
 }
 
+.insightActions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #34312d;
+}
+
+.insightPanel {
+  margin-top: 0;
+}
+
+.insightHeadActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.insightList {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.insightItem {
+  padding: 14px 16px;
+  border: 1px solid #34312d;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.insightItem.status-approved { border-color: #4a7c59; }
+.insightItem.status-rejected { opacity: 0.45; }
+
+.insightMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.insightType {
+  font-size: 0.72em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.insightBadge {
+  font-size: 0.72em;
+  color: #7a756e;
+  background: #2a2723;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.insightStatus {
+  font-size: 0.72em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.insightStatus.draft { background: #3a3530; color: #a09890; }
+.insightStatus.approved { background: #1e3a28; color: #6abf85; }
+.insightStatus.rejected { background: #3a1e1e; color: #bf6a6a; }
+
+.insightItem strong { font-size: 0.95em; }
+.insightItem p { font-size: 0.88em; color: #c8c0b4; margin: 0; line-height: 1.55; }
+
+.insightTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.insightTags span {
+  font-size: 0.72em;
+  color: #7a756e;
+  background: #232018;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.insightItemActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.insightItemActions button {
+  font-size: 0.8em;
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #34312d;
+  background: #2a2723;
+  color: #faf9f5;
+  cursor: pointer;
+}
+.insightItemActions button:first-child:hover { border-color: #4a7c59; color: #6abf85; }
+.insightItemActions button:last-child:hover { border-color: #7c4a4a; color: #bf6a6a; }
+
 .conclusion .markdownish code,
 .liveDebate .markdownish code,
 .bubble.assistant .markdownish code {
