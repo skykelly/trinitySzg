@@ -225,12 +225,40 @@ function getDb() {
     }
   } else {
     seedMissingAgentFields(db);
+    seedMissingAgents(db);
   }
 
   seedKnowledgeSources(db);
 
   database = db;
   return database;
+}
+
+function seedMissingAgents(db: DatabaseSync) {
+  const existing = new Set(
+    (db.prepare("SELECT id FROM agents").all() as { id: string }[]).map((r) => String(r.id))
+  );
+  const missing = defaultAgents.filter((a) => !existing.has(a.id));
+  if (missing.length === 0) return;
+
+  const insert = db.prepare(`
+    INSERT INTO agents (
+      id, name, role, agent_type, persona_type, description, tone, debate_style,
+      provider, model, temperature, system_prompt, knowledge, judgment_criteria, debate_behavior,
+      response_template, challenge_rules, evidence_rules, scorecard, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const agent of missing) {
+    insert.run(
+      agent.id, agent.name, agent.role, agent.agentType, agent.personaType,
+      agent.description, agent.tone, agent.debateStyle,
+      agent.provider, agent.model, agent.temperature, agent.systemPrompt,
+      agent.knowledge, agent.judgmentCriteria, agent.debateBehavior,
+      agent.responseTemplate, agent.challengeRules, agent.evidenceRules,
+      agent.scorecard, agent.updatedAt
+    );
+  }
 }
 
 function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string) {
