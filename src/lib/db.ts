@@ -15,6 +15,7 @@ import type {
   DebateResult,
   DebateSummary,
   DebateTurn,
+  DomainCategory,
   KnowledgeChunk,
   KnowledgeSource,
   NewAgentOpinion,
@@ -115,6 +116,15 @@ function getDb() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE(source_id, chunk_index)
+    );
+
+    CREATE TABLE IF NOT EXISTS domain_categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sub TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT '',
+      insight TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS debate_insights (
@@ -229,6 +239,7 @@ function getDb() {
   }
 
   seedKnowledgeSources(db);
+  seedMigrationData(db);
 
   database = db;
   return database;
@@ -1276,4 +1287,139 @@ export function listSuperAgentAnswers(limit = 30): SuperAgentAnswer[] {
   const db = getDb();
   return (db.prepare("SELECT * FROM super_agent_answers ORDER BY created_at DESC LIMIT ?").all(limit) as Record<string, unknown>[])
     .map(mapSuperAgentAnswer);
+}
+
+// ── Domain Categories ────────────────────────────────────────────────────────
+
+type MigrationData = {
+  categories: Record<string, { name: string; sub: string; type: string; insight: string }>;
+  cases: Array<{
+    id: string;
+    category: string;
+    company: string;
+    title: string;
+    description: string;
+    body: string;
+    metrics: Array<{ value: string; label: string; trend: string }>;
+    tags: string[];
+    source: string;
+    url: string;
+    kpi_value: string;
+  }>;
+};
+
+function resolveAgentIdForCategory(categoryType: string): string {
+  if (categoryType === "living_space") return "tech";
+  if (categoryType === "consumption") return "business";
+  return "customer";
+}
+
+function resolveReliability(source: string): KnowledgeSource["reliability"] {
+  const s = source.toLowerCase();
+  const veryHigh = ["mckinsey", "deloitte", "bain", "gallup", "oecd", "microsoft", "google", "zuora"];
+  const high = ["grand view", "reuters", "the verge", "techradar", "mdpi", "kaist", "unesco", "scientific", "nature", "asia economy", "lg "];
+  if (veryHigh.some((k) => s.includes(k))) return "very_high";
+  if (high.some((k) => s.includes(k))) return "high";
+  return "medium";
+}
+
+function resolveSourceType(source: string): string {
+  const s = source.toLowerCase();
+  if (["mckinsey", "deloitte", "bain", "zuora", "grand view"].some((k) => s.includes(k))) return "industry_report";
+  if (["oecd", "unesco", "kaist", "mdpi", "scientific", "nature", "gallup", "behavioral"].some((k) => s.includes(k))) return "research";
+  if (["reuters", "verge", "techradar", "sun", "asia economy", "techradar"].some((k) => s.includes(k))) return "news";
+  return "external_source";
+}
+
+function resolvePriority(kpiValue: string): number {
+  if (!kpiValue || kpiValue === "N/A") return 3;
+  if (/^\d|^\$|^£|^€/.test(kpiValue)) return 1;
+  return 2;
+}
+
+function buildSummary(description: string, body: string, metrics: Array<{ value: string; label: string }>): string {
+  const keyMetrics = metrics
+    .filter((m) => m.value && m.value !== "N/A")
+    .slice(0, 3)
+    .map((m) => `${m.value}: ${m.label}`)
+    .join(" / ");
+  const parts = [description, keyMetrics ? `[Key metrics] ${keyMetrics}` : null, body].filter(Boolean);
+  return parts.join("\n\n").slice(0, 1200);
+}
+
+function seedMigrationData(db: DatabaseSync) {
+  const migrationPath = join(process.cwd(), "data", "migraion_data.json");
+  if (!existsSync(migrationPath)) return;
+
+  const raw = readFileSync(migrationPath, "utf8");
+  const data = JSON.parse(raw) as MigrationData;
+  const now = new Date().toISOString();
+
+  // Seed domain_categories
+  const insertCategory = db.prepare(`
+    INSERT OR IGNORE INTO domain_categories (id, name, sub, type, insight, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  for (const [id, cat] of Object.entries(data.categories)) {
+    insertCategory.run(id, cat.name, cat.sub, cat.type, cat.insight, now);
+  }
+
+  // Seed cases as knowledge_sources
+  const insertSource = db.prepare(`
+    INSERT OR IGNORE INTO knowledge_sources (
+      agent_id, title, url, source_type, reliability, priority,
+      summary, tags, domain_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const c of data.cases) {
+    const catEntry = data.categories[c.category];
+    if (!catEntry) continue;
+    const agentId = resolveAgentIdForCategory(catEntry.type);
+    const summary = buildSummary(c.description, c.body, c.metrics);
+    const reliability = resolveReliability(c.source);
+    const sourceType = resolveSourceType(c.source);
+    const priority = resolvePriority(c.kpi_value);
+    insertSource.run(
+      agentId,
+      c.title,
+      c.url,
+      sourceType,
+      reliability,
+      priority,
+      summary,
+      JSON.stringify(c.tags),
+      c.category,
+      now,
+      now
+    );
+  }
+}
+
+export function listDomainCategories(): DomainCategory[] {
+  const db = getDb();
+  return (db.prepare("SELECT * FROM domain_categories ORDER BY id").all() as Record<string, unknown>[]).map((row) => ({
+    id: String(row.id),
+    name: String(row.name),
+    sub: String(row.sub ?? ""),
+    type: String(row.type ?? ""),
+    insight: String(row.insight ?? ""),
+    createdAt: String(row.created_at)
+  }));
+}
+
+export function getDomainCategory(id: string): DomainCategory | null {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM domain_categories WHERE id = ?").get(id);
+  if (!row) return null;
+  const r = row as Record<string, unknown>;
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    sub: String(r.sub ?? ""),
+    type: String(r.type ?? ""),
+    insight: String(r.insight ?? ""),
+    createdAt: String(r.created_at)
+  };
 }

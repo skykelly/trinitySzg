@@ -1,5 +1,14 @@
 export type Provider = "gemini" | "github";
 
+export interface DomainCategory {
+  id: string;
+  name: string;
+  sub: string;
+  type: string;
+  insight: string;
+  createdAt: string;
+}
+
 export type AgentType = "specialist_agent" | "super_agent" | "moderator_agent";
 
 export type DebateInsightStatus = "draft" | "approved" | "deprecated" | "rejected";
