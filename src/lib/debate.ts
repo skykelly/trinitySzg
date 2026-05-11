@@ -26,6 +26,7 @@ export async function streamDebate(
     temperature: 0.45,
     systemPrompt:
       "당신은 세 AI 페르소나의 토론을 진행하고 종합하는 중립 진행자입니다. 각 페르소나의 관점을 분리해서 충실히 시뮬레이션하되, 최종 결론은 실행 가능하게 정리하세요.",
+    agentType: "moderator_agent",
     description: "Trinity Debate의 중립 진행자입니다.",
     tone: "명확하고 실행 중심",
     debateStyle: "균형형",
@@ -179,6 +180,7 @@ async function runSingleCallDebate(question: string, agents: Agent[]) {
     temperature: 0.45,
     systemPrompt:
       "당신은 세 AI 페르소나의 토론을 진행하고 종합하는 중립 진행자입니다. 각 페르소나의 관점을 분리해서 충실히 시뮬레이션하되, 최종 결론은 실행 가능하게 정리하세요.",
+    agentType: "moderator_agent",
     description: "Trinity Debate의 중립 진행자입니다.",
     tone: "명확하고 실행 중심",
     debateStyle: "균형형",
@@ -353,6 +355,7 @@ async function runMultiCallDebate(question: string, agents: Agent[]) {
     temperature: 0.35,
     systemPrompt:
       "당신은 세 AI의 토론을 종합하는 중립 진행자입니다. 어느 한 관점에 치우치지 말고 실행 가능한 결론을 구조화하세요.",
+    agentType: "moderator_agent",
     description: "Szg Synthesis를 작성하는 중립 진행자입니다.",
     tone: "간결하고 실무적인 보고형",
     debateStyle: "균형형",

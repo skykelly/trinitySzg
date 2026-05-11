@@ -11,6 +11,7 @@ type GenerateInput = {
     | "description"
     | "tone"
     | "debateStyle"
+    | "agentType"
     | "judgmentCriteria"
     | "debateBehavior"
     | "responseTemplate"
@@ -102,7 +103,11 @@ When answering:
 - Follow the response template unless the user asks for a different format.
 - Separate evidence-backed statements from assumptions.
 - Include Evidence Level, Missing Evidence, and Next Validation when relevant.
-- Use the scorecard when making a recommendation or trade-off judgment.`.trim();
+- Use the scorecard when making a recommendation or trade-off judgment.${
+    agent.agentType === "super_agent"
+      ? "\n\n[SUPER AGENT RULE]\nYou are an independent expert agent. Prior debate knowledge is reference context, not a binding conclusion."
+      : ""
+  }`.trim();
 }
 
 function geminiPayload(agent: GenerateInput["agent"], messages: ChatMessage[]) {
