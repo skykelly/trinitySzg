@@ -231,11 +231,22 @@ h3 {
   min-height: 42px;
   padding: 0 14px;
   color: #faf9f5;
-  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   background: var(--surface-dark-elevated);
   border: 1px solid #34312d;
   border-radius: 8px;
   font-weight: 500;
+}
+
+.navHint {
+  font-size: 0.72em;
+  font-weight: 400;
+  color: #7a756e;
+  text-align: right;
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .drawerNav button.active,

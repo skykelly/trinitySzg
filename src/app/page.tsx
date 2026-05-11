@@ -48,7 +48,7 @@ export default function Home() {
   const [debate, setDebate] = useState<DebateResult | null>(null);
   const [debateDraft, setDebateDraft] = useState("");
   const [recents, setRecents] = useState<RecentItem[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -451,7 +451,7 @@ export default function Home() {
       {sidebarOpen ? (
         <aside className="drawer open" aria-label="History menu">
           <div className="drawerHeader">
-            <strong>History</strong>
+            <strong>전문가 AI</strong>
             <button className="drawerClose" type="button" aria-label="메뉴 닫기" onClick={() => setSidebarOpen(false)}>
               ×
             </button>
@@ -459,6 +459,7 @@ export default function Home() {
           <nav className="drawerNav">
             <button className={tab === "debate" && !debate ? "active" : ""} onClick={newDiscussion}>
               Trinity Debate
+              <span className="navHint">AI간 토론</span>
             </button>
             <button
               className={tab === "chat" ? "active" : ""}
@@ -467,6 +468,7 @@ export default function Home() {
               }}
             >
               Solo Lens
+              <span className="navHint">AI와 대화</span>
             </button>
             <button
               className={tab === "admin" ? "active" : ""}
@@ -475,11 +477,12 @@ export default function Home() {
               }}
             >
               Persona Studio
+              <span className="navHint">학습/조정</span>
             </button>
           </nav>
           <div className="recents">
             <div className="recentsHead">
-                <span>Decision Archive</span>
+                <span>History</span>
               <button type="button" onClick={loadRecents} disabled={loading}>
                 새로고침
               </button>
@@ -917,7 +920,7 @@ export default function Home() {
           <div className="debateHeader panel">
             <div>
               <p className="eyebrow">Trinity Debate</p>
-              <h2>{question || "정(Thesis), 반(Antithesis), 합(Synthesis)"}</h2>
+              <h2>{question || "Shaping the Future"}</h2>
               <p>3개의 미래 예측 전문가 Agent가 기술 가능성, 고객 가치, 사업 실행성을 동시에 검토합니다.</p>
             </div>
             <div className="debateMetaGrid">
