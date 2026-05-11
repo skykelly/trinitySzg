@@ -47,12 +47,14 @@ export default function Home() {
   const [sourceForm, setSourceForm] = useState({
     title: "",
     url: "",
-    sourceType: "manual_source",
+    sourceType: "external_source",
     reliability: "high" as KnowledgeSource["reliability"],
     priority: 2,
     summary: "",
     tags: ""
   });
+  const [quickUrl, setQuickUrl] = useState("");
+  const [fetchingPreview, setFetchingPreview] = useState(false);
   const [conversationId, setConversationId] = useState<number | undefined>();
   const [question, setQuestion] = useState("");
   const [debate, setDebate] = useState<DebateResult | null>(null);
@@ -292,6 +294,44 @@ export default function Home() {
     }
   }
 
+  async function fetchUrlPreview(event: FormEvent) {
+    event.preventDefault();
+    const url = quickUrl.trim();
+    if (!url) return;
+    setFetchingPreview(true);
+    setNotice("");
+    try {
+      const res = await fetch("/api/knowledge-sources/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const data = (await res.json()) as {
+        title?: string;
+        summary?: string;
+        tags?: string[];
+        sourceType?: string;
+        reliability?: KnowledgeSource["reliability"];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "미리보기 실패");
+      setSourceForm((current) => ({
+        ...current,
+        url,
+        title: data.title || current.title,
+        summary: data.summary || current.summary,
+        sourceType: data.sourceType || current.sourceType,
+        reliability: data.reliability ?? current.reliability,
+        tags: data.tags?.join(", ") || current.tags
+      }));
+      setQuickUrl("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "미리보기 실패");
+    } finally {
+      setFetchingPreview(false);
+    }
+  }
+
   async function addKnowledgeSource(event: FormEvent) {
     event.preventDefault();
     if (!selectedStudioAgent || !sourceForm.title.trim() || !sourceForm.url.trim() || !sourceForm.summary.trim()) return;
@@ -312,7 +352,7 @@ export default function Home() {
       setSourceForm({
         title: "",
         url: "",
-        sourceType: "manual_source",
+        sourceType: "external_source",
         reliability: "high",
         priority: 2,
         summary: "",
@@ -848,79 +888,106 @@ export default function Home() {
                       ))
                     )}
                   </div>
-                  <form className="sourceForm" onSubmit={addKnowledgeSource}>
-                    <div className="twoCols">
-                      <label>
-                        Title
-                        <input
-                          value={sourceForm.title}
-                          onChange={(event) => setSourceForm((current) => ({ ...current, title: event.target.value }))}
-                        />
-                      </label>
-                      <label>
-                        URL
-                        <input
-                          value={sourceForm.url}
-                          onChange={(event) => setSourceForm((current) => ({ ...current, url: event.target.value }))}
-                        />
-                      </label>
-                    </div>
-                    <div className="sourceMetaGrid">
-                      <label>
-                        Source Type
-                        <input
-                          value={sourceForm.sourceType}
-                          onChange={(event) => setSourceForm((current) => ({ ...current, sourceType: event.target.value }))}
-                        />
-                      </label>
-                      <label>
-                        Reliability
-                        <select
-                          value={sourceForm.reliability}
-                          onChange={(event) =>
-                            setSourceForm((current) => ({
-                              ...current,
-                              reliability: event.target.value as KnowledgeSource["reliability"]
-                            }))
-                          }
-                        >
-                          <option value="very_high">very_high</option>
-                          <option value="high">high</option>
-                          <option value="medium">medium</option>
-                          <option value="low">low</option>
-                        </select>
-                      </label>
-                      <label>
-                        Priority
-                        <input
-                          type="number"
-                          min="1"
-                          max="5"
-                          value={sourceForm.priority}
-                          onChange={(event) => setSourceForm((current) => ({ ...current, priority: Number(event.target.value) }))}
-                        />
-                      </label>
-                    </div>
-                    <label>
-                      Summary
-                      <textarea
-                        rows={4}
-                        value={sourceForm.summary}
-                        onChange={(event) => setSourceForm((current) => ({ ...current, summary: event.target.value }))}
-                      />
-                    </label>
-                    <label>
-                      Tags
+                  <div className="addSourceBlock">
+                    <form className="quickAddRow" onSubmit={fetchUrlPreview}>
                       <input
-                        value={sourceForm.tags}
-                        placeholder="RAG, AI governance, UX research"
-                        onChange={(event) => setSourceForm((current) => ({ ...current, tags: event.target.value }))}
+                        className="quickUrlInput"
+                        value={quickUrl}
+                        onChange={(event) => setQuickUrl(event.target.value)}
+                        placeholder="https://... URL을 입력하세요"
+                        type="url"
                       />
-                    </label>
-                    <button className="primary" disabled={loading || !sourceForm.title.trim() || !sourceForm.url.trim()}>
-                      Add Source
-                    </button>
-                  </form>
+                      <button type="submit" disabled={fetchingPreview || !quickUrl.trim()}>
+                        {fetchingPreview ? "불러오는 중…" : "Fetch"}
+                      </button>
+                    </form>
+
+                    {(sourceForm.url || sourceForm.title) ? (
+                      <form className="sourceForm" onSubmit={addKnowledgeSource}>
+                        <label>
+                          Title
+                          <input
+                            value={sourceForm.title}
+                            onChange={(event) => setSourceForm((current) => ({ ...current, title: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          URL
+                          <input
+                            value={sourceForm.url}
+                            onChange={(event) => setSourceForm((current) => ({ ...current, url: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Summary
+                          <textarea
+                            rows={4}
+                            value={sourceForm.summary}
+                            onChange={(event) => setSourceForm((current) => ({ ...current, summary: event.target.value }))}
+                            placeholder="이 소스의 핵심 내용을 요약하세요"
+                          />
+                        </label>
+                        <div className="sourceMetaGrid">
+                          <label>
+                            Source Type
+                            <input
+                              value={sourceForm.sourceType}
+                              onChange={(event) => setSourceForm((current) => ({ ...current, sourceType: event.target.value }))}
+                            />
+                          </label>
+                          <label>
+                            Reliability
+                            <select
+                              value={sourceForm.reliability}
+                              onChange={(event) =>
+                                setSourceForm((current) => ({
+                                  ...current,
+                                  reliability: event.target.value as KnowledgeSource["reliability"]
+                                }))
+                              }
+                            >
+                              <option value="very_high">very_high</option>
+                              <option value="high">high</option>
+                              <option value="medium">medium</option>
+                              <option value="low">low</option>
+                            </select>
+                          </label>
+                          <label>
+                            Priority
+                            <input
+                              type="number"
+                              min="1"
+                              max="5"
+                              value={sourceForm.priority}
+                              onChange={(event) => setSourceForm((current) => ({ ...current, priority: Number(event.target.value) }))}
+                            />
+                          </label>
+                        </div>
+                        <label>
+                          Tags
+                          <input
+                            value={sourceForm.tags}
+                            placeholder="AI, wellness, 고령화"
+                            onChange={(event) => setSourceForm((current) => ({ ...current, tags: event.target.value }))}
+                          />
+                        </label>
+                        <div className="sourceFormActions">
+                          <button
+                            className="primary"
+                            disabled={loading || !sourceForm.title.trim() || !sourceForm.url.trim()}
+                          >
+                            Add Source
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSourceForm({ title: "", url: "", sourceType: "external_source", reliability: "high", priority: 2, summary: "", tags: "" })}
+                          >
+                            초기화
+                          </button>
+                        </div>
+                      </form>
+                    ) : null}
+                  </div>
                 </section>
 
                 <section className="twoCols">

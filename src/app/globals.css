@@ -1046,6 +1046,53 @@ select:focus {
   border-color: #34312d;
 }
 
+/* ── Quick Add Source by URL ────────────────────────────────────────────── */
+
+.addSourceBlock {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #34312d;
+}
+
+.quickAddRow {
+  display: flex;
+  gap: 8px;
+}
+
+.quickUrlInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.quickAddRow button {
+  flex-shrink: 0;
+  padding: 0 18px;
+  height: 40px;
+  border-radius: 7px;
+  border: 1px solid #34312d;
+  background: var(--surface-dark-elevated);
+  color: #faf9f5;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.quickAddRow button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.quickAddRow button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.sourceFormActions {
+  display: flex;
+  gap: 8px;
+}
+
 /* ── Future Life Agent ──────────────────────────────────────────────────── */
 
 .futureLayout {
