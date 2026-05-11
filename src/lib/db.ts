@@ -1,18 +1,27 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { defaultAgents } from "./default-agents";
 import type {
   Agent,
+  AgentOpinion,
+  AgentType,
   ChatMessage,
   ConversationResult,
   ConversationSummary,
+  DebateInsight,
+  DebateInsightStatus,
   DebateResult,
   DebateSummary,
   DebateTurn,
   KnowledgeChunk,
   KnowledgeSource,
-  RecentItem
+  NewAgentOpinion,
+  NewDebateInsight,
+  NewSuperAgentAnswer,
+  RecentItem,
+  SuperAgentAnswer
 } from "./types";
 
 const dbPath = join(process.cwd(), "data", "app.db");
@@ -107,6 +116,57 @@ function getDb() {
       updated_at TEXT NOT NULL,
       UNIQUE(source_id, chunk_index)
     );
+
+    CREATE TABLE IF NOT EXISTS debate_insights (
+      id TEXT PRIMARY KEY,
+      debate_id TEXT NOT NULL,
+      domain_id TEXT,
+      insight_type TEXT NOT NULL,
+      agent_id TEXT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      confidence TEXT DEFAULT 'medium',
+      evidence_level TEXT DEFAULT 'medium',
+      tags TEXT DEFAULT '[]',
+      status TEXT DEFAULT 'draft',
+      valid_until TEXT,
+      reviewed_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_opinions (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT,
+      message_id TEXT,
+      agent_id TEXT NOT NULL,
+      domain_id TEXT,
+      question TEXT NOT NULL,
+      claim TEXT NOT NULL,
+      rationale TEXT,
+      evidence_refs TEXT DEFAULT '[]',
+      confidence TEXT DEFAULT 'medium',
+      score_json TEXT,
+      tags TEXT DEFAULT '[]',
+      status TEXT DEFAULT 'draft',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS super_agent_answers (
+      id TEXT PRIMARY KEY,
+      question TEXT NOT NULL,
+      domain_id TEXT,
+      answer_markdown TEXT NOT NULL,
+      referenced_archive_ids TEXT DEFAULT '[]',
+      referenced_evidence_ids TEXT DEFAULT '[]',
+      referenced_debate_ids TEXT DEFAULT '[]',
+      referenced_insight_ids TEXT DEFAULT '[]',
+      referenced_opinion_ids TEXT DEFAULT '[]',
+      answer_type TEXT DEFAULT 'future_life_answer',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   ensureColumn(db, "agents", "persona_type", "TEXT NOT NULL DEFAULT ''");
@@ -122,6 +182,12 @@ function getDb() {
   ensureColumn(db, "knowledge_sources", "content_status", "TEXT NOT NULL DEFAULT 'summary_only'");
   ensureColumn(db, "knowledge_sources", "content_error", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "knowledge_sources", "last_ingested_at", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "agents", "agent_type", "TEXT DEFAULT 'specialist_agent'");
+  ensureColumn(db, "knowledge_sources", "external_source_id", "TEXT");
+  ensureColumn(db, "knowledge_sources", "external_project_id", "TEXT");
+  ensureColumn(db, "knowledge_sources", "domain_id", "TEXT");
+  ensureColumn(db, "knowledge_sources", "content_hash", "TEXT");
+  ensureColumn(db, "knowledge_sources", "last_synced_at", "TEXT");
 
   const count = db.prepare("SELECT COUNT(*) AS count FROM agents").get() as { count: number };
   if (count.count === 0) {
@@ -223,10 +289,16 @@ function seedMissingAgentFields(db: DatabaseSync) {
 }
 
 function mapAgent(row: Record<string, unknown>): Agent {
+  const rawAgentType = String(row.agent_type ?? "specialist_agent");
+  const agentType: AgentType =
+    rawAgentType === "super_agent" || rawAgentType === "moderator_agent"
+      ? rawAgentType
+      : "specialist_agent";
   return {
     id: String(row.id),
     name: String(row.name),
     role: String(row.role),
+    agentType,
     personaType: String(row.persona_type ?? ""),
     description: String(row.description ?? ""),
     tone: String(row.tone ?? ""),
@@ -326,6 +398,11 @@ function mapKnowledgeSource(row: Record<string, unknown>): KnowledgeSource {
     contentError: String(row.content_error ?? ""),
     lastIngestedAt: String(row.last_ingested_at ?? ""),
     chunkCount: Number(row.chunk_count ?? 0),
+    externalSourceId: row.external_source_id ? String(row.external_source_id) : undefined,
+    externalProjectId: row.external_project_id ? String(row.external_project_id) : undefined,
+    domainId: row.domain_id ? String(row.domain_id) : undefined,
+    contentHash: row.content_hash ? String(row.content_hash) : undefined,
+    lastSyncedAt: row.last_synced_at ? String(row.last_synced_at) : undefined,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
@@ -906,4 +983,262 @@ export function createKnowledgeSource(
     );
   const source = db.prepare("SELECT * FROM knowledge_sources WHERE id = ?").get(id);
   return mapKnowledgeSource(source as Record<string, unknown>);
+}
+
+// ── Debate Insights ──────────────────────────────────────────────────────────
+
+function mapDebateInsight(row: Record<string, unknown>): DebateInsight {
+  let tags: string[] = [];
+  try {
+    const parsed = JSON.parse(String(row.tags ?? "[]")) as unknown;
+    if (Array.isArray(parsed)) tags = parsed.map(String);
+  } catch { tags = []; }
+  const confidence = String(row.confidence ?? "medium");
+  const evidenceLevel = String(row.evidence_level ?? "medium");
+  const status = String(row.status ?? "draft");
+  return {
+    id: String(row.id),
+    debateId: String(row.debate_id),
+    domainId: row.domain_id ? String(row.domain_id) : undefined,
+    insightType: String(row.insight_type) as DebateInsight["insightType"],
+    agentId: row.agent_id ? String(row.agent_id) : undefined,
+    title: String(row.title),
+    content: String(row.content),
+    confidence: confidence === "high" || confidence === "low" ? confidence : "medium",
+    evidenceLevel: evidenceLevel === "high" || evidenceLevel === "low" ? evidenceLevel : "medium",
+    tags,
+    status: status === "approved" || status === "deprecated" || status === "rejected" ? status : "draft",
+    validUntil: row.valid_until ? String(row.valid_until) : undefined,
+    reviewedAt: row.reviewed_at ? String(row.reviewed_at) : undefined,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+export function createDebateInsights(items: NewDebateInsight[]): DebateInsight[] {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const insert = db.prepare(`
+    INSERT INTO debate_insights (
+      id, debate_id, domain_id, insight_type, agent_id, title, content,
+      confidence, evidence_level, tags, status, valid_until, reviewed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const ids: string[] = [];
+  for (const item of items) {
+    const id = randomUUID();
+    insert.run(
+      id, item.debateId, item.domainId ?? null, item.insightType, item.agentId ?? null,
+      item.title, item.content, item.confidence, item.evidenceLevel,
+      JSON.stringify(item.tags), item.status,
+      item.validUntil ?? null, item.reviewedAt ?? null, now, now
+    );
+    ids.push(id);
+  }
+  return ids.map((id) => mapDebateInsight(db.prepare("SELECT * FROM debate_insights WHERE id = ?").get(id) as Record<string, unknown>));
+}
+
+export function listDebateInsights(params: {
+  debateId?: string;
+  domainId?: string;
+  query?: string;
+  status?: string;
+  limit?: number;
+} = {}): DebateInsight[] {
+  const db = getDb();
+  const rows = db.prepare("SELECT * FROM debate_insights ORDER BY created_at DESC").all() as Record<string, unknown>[];
+  const insights = rows.map(mapDebateInsight);
+
+  const terms = params.query ? tokenizeQuery(params.query) : [];
+  return insights
+    .filter((item) => {
+      if (params.debateId && item.debateId !== params.debateId) return false;
+      if (params.domainId && item.domainId !== params.domainId) return false;
+      if (params.status && item.status !== params.status) return false;
+      if (terms.length === 0) return true;
+      const haystack = [item.title, item.content, item.tags.join(" ")].join(" ").toLowerCase();
+      return terms.some((term) => haystack.includes(term));
+    })
+    .map((item) => {
+      if (terms.length === 0) return { item, score: 0 };
+      const title = item.title.toLowerCase();
+      const tags = item.tags.join(" ").toLowerCase();
+      const content = item.content.toLowerCase();
+      const score = terms.reduce((total, term) => {
+        if (!([title, tags, content].join(" ")).includes(term)) return total;
+        const titleBoost = title.includes(term) ? 4 : 0;
+        const tagBoost = tags.includes(term) ? 3 : 0;
+        const contentBoost = content.includes(term) ? 1 : 0;
+        const statusBoost = item.status === "approved" ? 5 : item.status === "draft" ? 1 : 0;
+        const confidenceBoost = item.confidence === "high" ? 3 : 0;
+        const evidenceBoost = item.evidenceLevel === "high" ? 3 : 0;
+        return total + titleBoost + tagBoost + contentBoost + statusBoost + confidenceBoost + evidenceBoost;
+      }, 0);
+      return { item, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => item)
+    .slice(0, params.limit ?? 50);
+}
+
+export function updateDebateInsightStatus(id: string, status: DebateInsightStatus): DebateInsight {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare("UPDATE debate_insights SET status = ?, reviewed_at = ?, updated_at = ? WHERE id = ?")
+    .run(status, now, now, id);
+  const row = db.prepare("SELECT * FROM debate_insights WHERE id = ?").get(id);
+  if (!row) throw new Error("Debate Insight를 찾을 수 없습니다.");
+  return mapDebateInsight(row as Record<string, unknown>);
+}
+
+// ── Agent Opinions ───────────────────────────────────────────────────────────
+
+function mapAgentOpinion(row: Record<string, unknown>): AgentOpinion {
+  let tags: string[] = [];
+  let evidenceRefs: string[] = [];
+  let scoreJson: Record<string, unknown> | undefined;
+  try { const p = JSON.parse(String(row.tags ?? "[]")) as unknown; if (Array.isArray(p)) tags = p.map(String); } catch { tags = []; }
+  try { const p = JSON.parse(String(row.evidence_refs ?? "[]")) as unknown; if (Array.isArray(p)) evidenceRefs = p.map(String); } catch { evidenceRefs = []; }
+  try { if (row.score_json) scoreJson = JSON.parse(String(row.score_json)) as Record<string, unknown>; } catch { scoreJson = undefined; }
+  const confidence = String(row.confidence ?? "medium");
+  const status = String(row.status ?? "draft");
+  return {
+    id: String(row.id),
+    conversationId: row.conversation_id ? String(row.conversation_id) : undefined,
+    messageId: row.message_id ? String(row.message_id) : undefined,
+    agentId: String(row.agent_id),
+    domainId: row.domain_id ? String(row.domain_id) : undefined,
+    question: String(row.question),
+    claim: String(row.claim),
+    rationale: row.rationale ? String(row.rationale) : undefined,
+    evidenceRefs,
+    confidence: confidence === "high" || confidence === "low" ? confidence : "medium",
+    scoreJson,
+    tags,
+    status: status === "approved" || status === "deprecated" || status === "rejected" ? status : "draft",
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+export function createAgentOpinion(input: NewAgentOpinion): AgentOpinion {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO agent_opinions (
+      id, conversation_id, message_id, agent_id, domain_id, question, claim,
+      rationale, evidence_refs, confidence, score_json, tags, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, input.conversationId ?? null, input.messageId ?? null, input.agentId,
+    input.domainId ?? null, input.question, input.claim,
+    input.rationale ?? null, JSON.stringify(input.evidenceRefs),
+    input.confidence, input.scoreJson ? JSON.stringify(input.scoreJson) : null,
+    JSON.stringify(input.tags), input.status, now, now
+  );
+  const row = db.prepare("SELECT * FROM agent_opinions WHERE id = ?").get(id);
+  return mapAgentOpinion(row as Record<string, unknown>);
+}
+
+export function listAgentOpinions(params: {
+  agentId?: string;
+  domainId?: string;
+  query?: string;
+  status?: string;
+  limit?: number;
+} = {}): AgentOpinion[] {
+  const db = getDb();
+  const rows = db.prepare("SELECT * FROM agent_opinions ORDER BY created_at DESC").all() as Record<string, unknown>[];
+  const opinions = rows.map(mapAgentOpinion);
+  const terms = params.query ? tokenizeQuery(params.query) : [];
+
+  return opinions
+    .filter((item) => {
+      if (params.agentId && item.agentId !== params.agentId) return false;
+      if (params.domainId && item.domainId !== params.domainId) return false;
+      if (params.status && item.status !== params.status) return false;
+      if (terms.length === 0) return true;
+      const haystack = [item.claim, item.rationale ?? "", item.tags.join(" ")].join(" ").toLowerCase();
+      return terms.some((term) => haystack.includes(term));
+    })
+    .map((item) => {
+      if (terms.length === 0) return { item, score: 0 };
+      const claim = item.claim.toLowerCase();
+      const rationale = (item.rationale ?? "").toLowerCase();
+      const tags = item.tags.join(" ").toLowerCase();
+      const score = terms.reduce((total, term) => {
+        const claimBoost = claim.includes(term) ? 4 : 0;
+        const rationaleBoost = rationale.includes(term) ? 2 : 0;
+        const tagBoost = tags.includes(term) ? 3 : 0;
+        const agentBoost = params.agentId && item.agentId === params.agentId ? 2 : 0;
+        const confidenceBoost = item.confidence === "high" ? 3 : 0;
+        return total + claimBoost + rationaleBoost + tagBoost + agentBoost + confidenceBoost;
+      }, 0);
+      return { item, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => item)
+    .slice(0, params.limit ?? 50);
+}
+
+// ── Super Agent Answers ──────────────────────────────────────────────────────
+
+function parseJsonArray(raw: unknown): string[] {
+  try {
+    const parsed = JSON.parse(String(raw ?? "[]")) as unknown;
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch { return []; }
+}
+
+function mapSuperAgentAnswer(row: Record<string, unknown>): SuperAgentAnswer {
+  return {
+    id: String(row.id),
+    question: String(row.question),
+    domainId: row.domain_id ? String(row.domain_id) : undefined,
+    answerMarkdown: String(row.answer_markdown),
+    referencedArchiveIds: parseJsonArray(row.referenced_archive_ids),
+    referencedEvidenceIds: parseJsonArray(row.referenced_evidence_ids),
+    referencedDebateIds: parseJsonArray(row.referenced_debate_ids),
+    referencedInsightIds: parseJsonArray(row.referenced_insight_ids),
+    referencedOpinionIds: parseJsonArray(row.referenced_opinion_ids),
+    answerType: String(row.answer_type ?? "future_life_answer"),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+export function createSuperAgentAnswer(input: NewSuperAgentAnswer): SuperAgentAnswer {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO super_agent_answers (
+      id, question, domain_id, answer_markdown,
+      referenced_archive_ids, referenced_evidence_ids, referenced_debate_ids,
+      referenced_insight_ids, referenced_opinion_ids, answer_type, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, input.question, input.domainId ?? null, input.answerMarkdown,
+    JSON.stringify(input.referencedArchiveIds),
+    JSON.stringify(input.referencedEvidenceIds),
+    JSON.stringify(input.referencedDebateIds),
+    JSON.stringify(input.referencedInsightIds),
+    JSON.stringify(input.referencedOpinionIds),
+    input.answerType, now, now
+  );
+  const row = db.prepare("SELECT * FROM super_agent_answers WHERE id = ?").get(id);
+  return mapSuperAgentAnswer(row as Record<string, unknown>);
+}
+
+export function getSuperAgentAnswer(id: string): SuperAgentAnswer | null {
+  const db = getDb();
+  const row = db.prepare("SELECT * FROM super_agent_answers WHERE id = ?").get(id);
+  return row ? mapSuperAgentAnswer(row as Record<string, unknown>) : null;
+}
+
+export function listSuperAgentAnswers(limit = 30): SuperAgentAnswer[] {
+  const db = getDb();
+  return (db.prepare("SELECT * FROM super_agent_answers ORDER BY created_at DESC LIMIT ?").all(limit) as Record<string, unknown>[])
+    .map(mapSuperAgentAnswer);
 }

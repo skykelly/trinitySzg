@@ -1,9 +1,26 @@
 export type Provider = "gemini" | "github";
 
+export type AgentType = "specialist_agent" | "super_agent" | "moderator_agent";
+
+export type DebateInsightStatus = "draft" | "approved" | "deprecated" | "rejected";
+
+export type DebateInsightType =
+  | "tech_feasibility"
+  | "customer_behavior"
+  | "business_opportunity"
+  | "risk"
+  | "counterargument"
+  | "consensus"
+  | "disagreement"
+  | "scenario_seed"
+  | "kpi"
+  | "assumption";
+
 export type Agent = {
   id: string;
   name: string;
   role: string;
+  agentType: AgentType;
   personaType: string;
   description: string;
   tone: string;
@@ -39,6 +56,11 @@ export type KnowledgeSource = {
   lastIngestedAt: string;
   chunkCount: number;
   chunks?: KnowledgeChunk[];
+  externalSourceId?: string;
+  externalProjectId?: string;
+  domainId?: string;
+  contentHash?: string;
+  lastSyncedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -103,3 +125,60 @@ export type ConversationResult = {
 export type RecentItem =
   | ({ kind: "discussion" } & DebateSummary)
   | ({ kind: "chat" } & ConversationSummary);
+
+export interface DebateInsight {
+  id: string;
+  debateId: string;
+  domainId?: string;
+  insightType: DebateInsightType;
+  agentId?: string;
+  title: string;
+  content: string;
+  confidence: "high" | "medium" | "low";
+  evidenceLevel: "high" | "medium" | "low";
+  tags: string[];
+  status: DebateInsightStatus;
+  validUntil?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NewDebateInsight = Omit<DebateInsight, "id" | "createdAt" | "updatedAt">;
+
+export interface AgentOpinion {
+  id: string;
+  conversationId?: string;
+  messageId?: string;
+  agentId: string;
+  domainId?: string;
+  question: string;
+  claim: string;
+  rationale?: string;
+  evidenceRefs: string[];
+  confidence: "high" | "medium" | "low";
+  scoreJson?: Record<string, unknown>;
+  tags: string[];
+  status: DebateInsightStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NewAgentOpinion = Omit<AgentOpinion, "id" | "createdAt" | "updatedAt">;
+
+export interface SuperAgentAnswer {
+  id: string;
+  question: string;
+  domainId?: string;
+  answerMarkdown: string;
+  referencedArchiveIds: string[];
+  referencedEvidenceIds: string[];
+  referencedDebateIds: string[];
+  referencedInsightIds: string[];
+  referencedOpinionIds: string[];
+  answerType: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type NewSuperAgentAnswer = Omit<SuperAgentAnswer, "id" | "createdAt" | "updatedAt">;
