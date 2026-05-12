@@ -1399,7 +1399,7 @@ select:focus {
   flex: 1;
   min-width: 0;
   resize: none;
-  font-size: 1.025rem;
+  font-size: 12px;
   line-height: 1.5;
   padding: 9px 12px;
   height: 40px;

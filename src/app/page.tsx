@@ -1376,7 +1376,6 @@ export default function Home() {
             <div>
               <p className="eyebrow">Future Life Agent</p>
               <h2>AI로 인한 고객 미래 생활 변화 분석</h2>
-              <p>독립 Super Agent가 Archive, Evidence, Debate Insight를 종합해 독립적으로 답변합니다.</p>
             </div>
           </div>
           <div className="futureLayout">
