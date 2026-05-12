@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Agent, ChatMessage, ConversationResult, DebateInsight, DebateInsightStatus, DebateResult, KnowledgeSource, Provider, RecentItem } from "@/lib/types";
 
 type SuperAnswerResult = {
@@ -82,6 +82,30 @@ export default function Home() {
   const [opinionDomainId, setOpinionDomainId] = useState("");
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  const futureFormRef = useRef<HTMLFormElement>(null);
+  const debateFormRef = useRef<HTMLFormElement>(null);
+  const personaTestFormRef = useRef<HTMLFormElement>(null);
+
+  const SUPER_QUESTION_SUGGESTION = "2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까?";
+
+  function enterSubmit(formRef: React.RefObject<HTMLFormElement | null>) {
+    return (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        formRef.current?.requestSubmit();
+      }
+    };
+  }
+
+  function superQuestionKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Tab" && !superQuestion.trim()) {
+      e.preventDefault();
+      setSuperQuestion(SUPER_QUESTION_SUGGESTION);
+      return;
+    }
+    enterSubmit(futureFormRef)(e);
+  }
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
 
@@ -1050,11 +1074,12 @@ export default function Home() {
 
                 <section>
                   <h3>Persona Test</h3>
-                  <form className="testPrompt" onSubmit={runPersonaTest}>
+                  <form className="testPrompt" onSubmit={runPersonaTest} ref={personaTestFormRef}>
                     <textarea
                       rows={3}
                       value={personaTestInput}
                       onChange={(event) => setPersonaTestInput(event.target.value)}
+                      onKeyDown={enterSubmit(personaTestFormRef)}
                       placeholder="AI 쇼핑 어시스턴트를 오프라인 매장에도 적용할 수 있을까?"
                     />
                     <button className="primary" disabled={loading || !personaTestInput.trim()}>
@@ -1192,14 +1217,15 @@ export default function Home() {
             </div>
           </div>
           <div className="futureLayout">
-            <form className="panel futureInput" onSubmit={askSuperAgent}>
+            <form className="panel futureInput" onSubmit={askSuperAgent} ref={futureFormRef}>
               <label className="futureQuestionLabel">
                 Question
                 <textarea
                   rows={3}
                   value={superQuestion}
                   onChange={(e) => setSuperQuestion(e.target.value)}
-                  placeholder="2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까?"
+                  onKeyDown={superQuestionKeyDown}
+                  placeholder="Tab으로 예시 질문 입력 · Enter로 제출 · Shift+Enter 줄바꿈"
                 />
               </label>
               <div className="futureOptionsRow">
@@ -1330,12 +1356,13 @@ export default function Home() {
               </label>
             </div>
           </div>
-          <form className="questionBox" onSubmit={submitDebate}>
+          <form className="questionBox" onSubmit={submitDebate} ref={debateFormRef}>
             <textarea
               rows={4}
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Frame the Question"
+              onKeyDown={enterSubmit(debateFormRef)}
+              placeholder="Frame the Question  (Enter로 제출 · Shift+Enter 줄바꿈)"
             />
             <button className="primary" disabled={loading || !question.trim()}>
               Start Debate
