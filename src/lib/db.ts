@@ -25,7 +25,7 @@ import type {
   SuperAgentAnswer
 } from "./types";
 
-const dbPath = join(process.cwd(), "data", "app.db");
+const dbPath = join(process.cwd(), "data", "db-data", "app.db");
 mkdirSync(dirname(dbPath), { recursive: true });
 
 let database: DatabaseSync | null = null;
