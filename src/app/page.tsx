@@ -1202,45 +1202,37 @@ export default function Home() {
                   placeholder="2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까?"
                 />
               </label>
-              <div className="twoCols">
-                <label>
-                  Domain ID
-                  <input value={superDomainId} onChange={(e) => setSuperDomainId(e.target.value)} placeholder="ai_home" />
-                </label>
-                <label>
-                  Customer Segment
-                  <input value={superCustomerSegment} onChange={(e) => setSuperCustomerSegment(e.target.value)} placeholder="맞벌이 가구" />
-                </label>
-              </div>
-              <div className="twoCols">
-                <label>
-                  Time Horizon
+              <div className="futureControls">
+                <div className="futureSelectRow">
+                  <span className="futureSelectLabel">Time Horizon</span>
                   <select value={superTimeHorizon} onChange={(e) => setSuperTimeHorizon(e.target.value as "1y" | "3y" | "5y" | "10y")}>
                     <option value="1y">1년</option>
                     <option value="3y">3년</option>
                     <option value="5y">5년</option>
                     <option value="10y">10년</option>
                   </select>
-                </label>
-                <label>
-                  Output Type
+                  <span className="futureValueBadge">{superTimeHorizon === "1y" ? "1년" : superTimeHorizon === "3y" ? "3년" : superTimeHorizon === "5y" ? "5년" : "10년"}</span>
+                </div>
+                <div className="futureSelectRow">
+                  <span className="futureSelectLabel">Output Type</span>
                   <select value={superOutputType} onChange={(e) => setSuperOutputType(e.target.value)}>
                     <option value="future_life_answer">Future Life Answer</option>
                     <option value="scenario">Scenario</option>
                     <option value="business_opportunity">Business Opportunity</option>
                     <option value="executive_brief">Executive Brief</option>
                   </select>
-                </label>
-              </div>
-              <div className="checkboxRow">
-                <label className="checkboxLabel">
-                  <input type="checkbox" checked={superIncludeDebate} onChange={(e) => setSuperIncludeDebate(e.target.checked)} />
-                  Include Debate Knowledge
-                </label>
-                <label className="checkboxLabel">
-                  <input type="checkbox" checked={superIncludeOpinions} onChange={(e) => setSuperIncludeOpinions(e.target.checked)} />
-                  Include Agent Opinions
-                </label>
+                  <span className="futureValueBadge">{superOutputType === "future_life_answer" ? "Future Life Answer" : superOutputType === "scenario" ? "Scenario" : superOutputType === "business_opportunity" ? "Business Opportunity" : "Executive Brief"}</span>
+                </div>
+                <div className="futureCheckboxRow">
+                  <label className="checkboxLabel">
+                    <input type="checkbox" checked={superIncludeDebate} onChange={(e) => setSuperIncludeDebate(e.target.checked)} />
+                    Debate Knowledge
+                  </label>
+                  <label className="checkboxLabel">
+                    <input type="checkbox" checked={superIncludeOpinions} onChange={(e) => setSuperIncludeOpinions(e.target.checked)} />
+                    Agent Opinions
+                  </label>
+                </div>
               </div>
               <button className="primary" disabled={superLoading || !superQuestion.trim()}>
                 {superLoading ? "분석 중…" : "Ask Future Life Agent"}
@@ -1249,7 +1241,7 @@ export default function Home() {
 
             {superAnswer ? (
               <div className="futureAnswer">
-                <section className="panel">
+                <section className="panel futureAnswerPanel">
                   <Markdownish text={superAnswer.answerMarkdown} />
                 </section>
                 {(superAnswer.references.knowledgeSources.length > 0 ||

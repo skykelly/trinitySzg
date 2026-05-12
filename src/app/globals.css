@@ -1147,6 +1147,48 @@ select:focus {
   gap: 14px;
 }
 
+.futureControls {
+  display: grid;
+  gap: 8px;
+}
+
+.futureSelectRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.futureSelectLabel {
+  font-size: 0.8em;
+  color: #7a756e;
+  white-space: nowrap;
+  width: 90px;
+  flex-shrink: 0;
+}
+
+.futureSelectRow select {
+  flex: 1;
+  min-width: 0;
+}
+
+.futureValueBadge {
+  font-size: 0.72em;
+  color: var(--accent);
+  background: rgba(204, 120, 92, 0.12);
+  border: 1px solid rgba(204, 120, 92, 0.25);
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.futureCheckboxRow {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 4px 0;
+}
+
 .checkboxRow {
   display: flex;
   gap: 20px;
@@ -1157,20 +1199,39 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.9em;
+  font-size: 0.85em;
   color: #c8c0b4;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .checkboxLabel input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   accent-color: var(--accent);
+  flex-shrink: 0;
 }
 
 .futureAnswer {
   display: grid;
   gap: 16px;
+}
+
+.futureAnswerPanel {
+  padding: 24px 28px;
+  line-height: 1.75;
+}
+
+.futureAnswerPanel .markdownish h1,
+.futureAnswerPanel .markdownish h2,
+.futureAnswerPanel .markdownish h3 {
+  margin-top: 1.4em;
+  margin-bottom: 0.5em;
+}
+
+.futureAnswerPanel .markdownish h1:first-child,
+.futureAnswerPanel .markdownish h2:first-child {
+  margin-top: 0;
 }
 
 .referencesPanel {
