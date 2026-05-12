@@ -978,6 +978,36 @@ export function createKnowledgeSource(
   return mapKnowledgeSource(source as Record<string, unknown>);
 }
 
+export function deleteKnowledgeSource(id: number): void {
+  const db = getDb();
+  db.prepare("DELETE FROM knowledge_chunks WHERE source_id = ?").run(id);
+  db.prepare("DELETE FROM knowledge_sources WHERE id = ?").run(id);
+}
+
+export function updateKnowledgeSourceMeta(
+  id: number,
+  data: Partial<Pick<KnowledgeSource, "title" | "summary" | "reliability" | "priority" | "sourceType" | "tags" | "domainId">>
+): KnowledgeSource {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (data.title !== undefined) { fields.push("title = ?"); values.push(data.title); }
+  if (data.summary !== undefined) { fields.push("summary = ?"); values.push(data.summary); }
+  if (data.reliability !== undefined) { fields.push("reliability = ?"); values.push(data.reliability); }
+  if (data.priority !== undefined) { fields.push("priority = ?"); values.push(data.priority); }
+  if (data.sourceType !== undefined) { fields.push("source_type = ?"); values.push(data.sourceType); }
+  if (data.tags !== undefined) { fields.push("tags = ?"); values.push(JSON.stringify(data.tags)); }
+  if (data.domainId !== undefined) { fields.push("domain_id = ?"); values.push(data.domainId); }
+  if (fields.length === 0) { const src = getKnowledgeSource(id); if (!src) throw new Error("Not found"); return src; }
+  fields.push("updated_at = ?");
+  values.push(now, id);
+  db.prepare(`UPDATE knowledge_sources SET ${fields.join(", ")} WHERE id = ?`).run(...(values as Parameters<ReturnType<typeof db.prepare>["run"]>));
+  const updated = getKnowledgeSource(id);
+  if (!updated) throw new Error("Knowledge Source를 찾을 수 없습니다.");
+  return updated;
+}
+
 // ── Debate Insights ──────────────────────────────────────────────────────────
 
 function mapDebateInsight(row: Record<string, unknown>): DebateInsight {

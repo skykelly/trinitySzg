@@ -13,7 +13,7 @@ type SuperAnswerResult = {
   };
 };
 
-type Tab = "admin" | "chat" | "debate" | "future";
+type Tab = "admin" | "chat" | "debate" | "future" | "knowledge";
 type DebateMode =
   | "Balanced Debate"
   | "Critical Review"
@@ -83,6 +83,21 @@ export default function Home() {
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
+  // Knowledge Manager
+  const [kmAgentFilter, setKmAgentFilter] = useState("all");
+  const [kmSearch, setKmSearch] = useState("");
+  const [allKmSources, setAllKmSources] = useState<KnowledgeSource[]>([]);
+  const [kmLoadingState, setKmLoadingState] = useState(false);
+  const [editingKmId, setEditingKmId] = useState<number | null>(null);
+  const [kmEditForm, setKmEditForm] = useState<{
+    title: string; summary: string; reliability: KnowledgeSource["reliability"]; priority: number; tags: string; domainId: string;
+  }>({ title: "", summary: "", reliability: "high", priority: 2, tags: "", domainId: "" });
+  const [kmAddAgentId, setKmAddAgentId] = useState("tech");
+  const [kmQuickUrl, setKmQuickUrl] = useState("");
+  const [kmFetchingUrl, setKmFetchingUrl] = useState(false);
+  const [kmAddForm, setKmAddForm] = useState({ title: "", url: "", sourceType: "external_source", reliability: "high" as KnowledgeSource["reliability"], priority: 2, summary: "", tags: "" });
+  const [kmManualContent, setKmManualContent] = useState<Record<number, string>>({});
+
   const futureFormRef = useRef<HTMLFormElement>(null);
   const debateFormRef = useRef<HTMLFormElement>(null);
   const personaTestFormRef = useRef<HTMLFormElement>(null);
@@ -126,6 +141,10 @@ export default function Home() {
     loadAgents();
     loadRecents();
   }, []);
+
+  useEffect(() => {
+    if (tab === "knowledge") loadAllKmSources();
+  }, [tab]);
 
   async function loadAgents() {
     try {
@@ -598,6 +617,150 @@ export default function Home() {
     }
   }
 
+  async function loadAllKmSources() {
+    setKmLoadingState(true);
+    try {
+      const res = await fetch("/api/knowledge-sources");
+      const data = (await res.json()) as { sources?: KnowledgeSource[] };
+      setAllKmSources(data.sources ?? []);
+    } catch { /* ignore */ } finally {
+      setKmLoadingState(false);
+    }
+  }
+
+  function startEditKm(source: KnowledgeSource) {
+    setEditingKmId(source.id);
+    setKmEditForm({
+      title: source.title,
+      summary: source.summary,
+      reliability: source.reliability,
+      priority: source.priority,
+      tags: source.tags.join(", "),
+      domainId: source.domainId ?? ""
+    });
+  }
+
+  async function saveKmEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingKmId) return;
+    try {
+      const res = await fetch(`/api/knowledge-sources/${editingKmId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: kmEditForm.title.trim(),
+          summary: kmEditForm.summary.trim(),
+          reliability: kmEditForm.reliability,
+          priority: kmEditForm.priority,
+          tags: kmEditForm.tags,
+          domainId: kmEditForm.domainId.trim() || undefined
+        })
+      });
+      const data = (await res.json()) as { source?: KnowledgeSource; error?: string };
+      if (!res.ok || !data.source) throw new Error(data.error ?? "수정 실패");
+      setAllKmSources(prev => prev.map(s => s.id === editingKmId ? data.source! : s));
+      setEditingKmId(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "수정 실패");
+    }
+  }
+
+  async function deleteKmSource(id: number) {
+    try {
+      const res = await fetch(`/api/knowledge-sources/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("삭제 실패");
+      setAllKmSources(prev => prev.filter(s => s.id !== id));
+      setNotice("Knowledge Source를 삭제했습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "삭제 실패");
+    }
+  }
+
+  async function ingestKmSource(source: KnowledgeSource, mode: "fetch" | "manual") {
+    const content = mode === "manual" ? kmManualContent[source.id]?.trim() : "";
+    if (mode === "manual" && !content) return;
+    setKmLoadingState(true);
+    try {
+      const res = await fetch(`/api/knowledge-sources/${source.id}/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mode === "manual" ? { content } : { fetchUrl: true })
+      });
+      const data = (await res.json()) as { source?: KnowledgeSource; error?: string };
+      if (!res.ok || !data.source) throw new Error(data.error ?? "인덱싱 실패");
+      setAllKmSources(prev => prev.map(s => s.id === source.id ? data.source! : s));
+      if (mode === "manual") setKmManualContent(prev => ({ ...prev, [source.id]: "" }));
+      setNotice(`${source.title} 인덱싱 완료`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "인덱싱 실패");
+      await loadAllKmSources();
+    } finally {
+      setKmLoadingState(false);
+    }
+  }
+
+  async function fetchKmPreview(event: FormEvent) {
+    event.preventDefault();
+    const url = kmQuickUrl.trim();
+    if (!url) return;
+    setKmFetchingUrl(true);
+    try {
+      const res = await fetch("/api/knowledge-sources/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const data = (await res.json()) as { title?: string; summary?: string; tags?: string[]; sourceType?: string; reliability?: KnowledgeSource["reliability"]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "미리보기 실패");
+      setKmAddForm(f => ({
+        ...f, url,
+        title: data.title || f.title,
+        summary: data.summary || f.summary,
+        sourceType: data.sourceType || f.sourceType,
+        reliability: data.reliability ?? f.reliability,
+        tags: data.tags?.join(", ") || f.tags
+      }));
+      setKmQuickUrl("");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "미리보기 실패");
+    } finally {
+      setKmFetchingUrl(false);
+    }
+  }
+
+  async function addKmSource(event: FormEvent) {
+    event.preventDefault();
+    if (!kmAddForm.title.trim() || !kmAddForm.url.trim() || !kmAddForm.summary.trim()) return;
+    setKmLoadingState(true);
+    try {
+      const res = await fetch("/api/knowledge-sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: kmAddAgentId, ...kmAddForm })
+      });
+      const data = (await res.json()) as { source?: KnowledgeSource; error?: string };
+      if (!res.ok || !data.source) throw new Error(data.error ?? "저장 실패");
+      setKmAddForm({ title: "", url: "", sourceType: "external_source", reliability: "high", priority: 2, summary: "", tags: "" });
+      await loadAllKmSources();
+      setNotice("Knowledge Source를 추가했습니다.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "저장 실패");
+    } finally {
+      setKmLoadingState(false);
+    }
+  }
+
+  const kmFilteredSources = useMemo(() => {
+    const filtered = allKmSources.filter(s => {
+      if (kmAgentFilter !== "all" && s.agentId !== kmAgentFilter) return false;
+      if (!kmSearch.trim()) return true;
+      const terms = kmSearch.toLowerCase().split(/\s+/).filter(t => t.length >= 2);
+      const hay = [s.title, s.summary, s.agentId, s.domainId ?? "", s.tags.join(" ")].join(" ").toLowerCase();
+      return terms.every(t => hay.includes(t));
+    });
+    return filtered;
+  }, [allKmSources, kmAgentFilter, kmSearch]);
+
   function newDiscussion() {
     setTab("debate");
     setQuestion("");
@@ -693,6 +856,13 @@ export default function Home() {
             >
               Persona Studio
               <span className="navHint">학습/조정</span>
+            </button>
+            <button
+              className={tab === "knowledge" ? "active" : ""}
+              onClick={() => setTab("knowledge")}
+            >
+              Knowledge Manager
+              <span className="navHint">지식 통합 관리</span>
             </button>
             <hr className="navDivider" />
             <button
@@ -849,169 +1019,16 @@ export default function Home() {
                   />
                 </section>
 
-                <section>
-                  <h3>Knowledge Source Manager</h3>
-                  <input
-                    className="sourceSearch"
-                    value={sourceQuery}
-                    placeholder="Search source title, summary, tags"
-                    onChange={(event) => setSourceQuery(event.target.value)}
-                  />
-                  <div className="sourceList">
-                    {visibleStudioSources.length === 0 ? (
-                      <p className="emptySmall">연결된 Knowledge Source가 없습니다.</p>
-                    ) : (
-                      visibleStudioSources.map((source) => (
-                        <article className="sourceItem" key={source.id}>
-                          <div>
-                            <strong>{source.title}</strong>
-                            <span>
-                              {source.sourceType} · {source.reliability} · P{source.priority} · {source.contentStatus}
-                              {source.chunkCount > 0 ? ` · ${source.chunkCount} chunks` : ""}
-                            </span>
-                          </div>
-                          <p>{source.summary}</p>
-                          {source.contentError ? <p className="sourceError">{source.contentError}</p> : null}
-                          <div className="sourceActions">
-                            <a href={source.url} target="_blank" rel="noreferrer">
-                              Source
-                            </a>
-                            <button type="button" onClick={() => ingestKnowledgeSource(source, "fetch")} disabled={loading}>
-                              Index URL
-                            </button>
-                          </div>
-                          <details className="manualIngest">
-                            <summary>Manual content / file upload</summary>
-                            <input
-                              type="file"
-                              accept=".pdf,.txt,.md,text/plain,application/pdf"
-                              onChange={(event) => {
-                                uploadKnowledgeFile(source, event.target.files?.[0] ?? null);
-                                event.currentTarget.value = "";
-                              }}
-                            />
-                            <textarea
-                              rows={5}
-                              value={manualContentBySource[source.id] ?? ""}
-                              placeholder="PDF나 접근 제한 페이지의 핵심 원문을 붙여넣으세요."
-                              onChange={(event) =>
-                                setManualContentBySource((current) => ({
-                                  ...current,
-                                  [source.id]: event.target.value
-                                }))
-                              }
-                            />
-                            <button
-                              type="button"
-                              onClick={() => ingestKnowledgeSource(source, "manual")}
-                              disabled={loading || !manualContentBySource[source.id]?.trim()}
-                            >
-                              Index Manual Text
-                            </button>
-                          </details>
-                        </article>
-                      ))
-                    )}
-                  </div>
-                  <div className="addSourceBlock">
-                    <form className="quickAddRow" onSubmit={fetchUrlPreview}>
-                      <input
-                        className="quickUrlInput"
-                        value={quickUrl}
-                        onChange={(event) => setQuickUrl(event.target.value)}
-                        placeholder="https://... URL을 입력하세요"
-                        type="url"
-                      />
-                      <button type="submit" disabled={fetchingPreview || !quickUrl.trim()}>
-                        {fetchingPreview ? "불러오는 중…" : "Fetch"}
-                      </button>
-                    </form>
-
-                    {(sourceForm.url || sourceForm.title) ? (
-                      <form className="sourceForm" onSubmit={addKnowledgeSource}>
-                        <label>
-                          Title
-                          <input
-                            value={sourceForm.title}
-                            onChange={(event) => setSourceForm((current) => ({ ...current, title: event.target.value }))}
-                          />
-                        </label>
-                        <label>
-                          URL
-                          <input
-                            value={sourceForm.url}
-                            onChange={(event) => setSourceForm((current) => ({ ...current, url: event.target.value }))}
-                          />
-                        </label>
-                        <label>
-                          Summary
-                          <textarea
-                            rows={4}
-                            value={sourceForm.summary}
-                            onChange={(event) => setSourceForm((current) => ({ ...current, summary: event.target.value }))}
-                            placeholder="이 소스의 핵심 내용을 요약하세요"
-                          />
-                        </label>
-                        <div className="sourceMetaGrid">
-                          <label>
-                            Source Type
-                            <input
-                              value={sourceForm.sourceType}
-                              onChange={(event) => setSourceForm((current) => ({ ...current, sourceType: event.target.value }))}
-                            />
-                          </label>
-                          <label>
-                            Reliability
-                            <select
-                              value={sourceForm.reliability}
-                              onChange={(event) =>
-                                setSourceForm((current) => ({
-                                  ...current,
-                                  reliability: event.target.value as KnowledgeSource["reliability"]
-                                }))
-                              }
-                            >
-                              <option value="very_high">very_high</option>
-                              <option value="high">high</option>
-                              <option value="medium">medium</option>
-                              <option value="low">low</option>
-                            </select>
-                          </label>
-                          <label>
-                            Priority
-                            <input
-                              type="number"
-                              min="1"
-                              max="5"
-                              value={sourceForm.priority}
-                              onChange={(event) => setSourceForm((current) => ({ ...current, priority: Number(event.target.value) }))}
-                            />
-                          </label>
-                        </div>
-                        <label>
-                          Tags
-                          <input
-                            value={sourceForm.tags}
-                            placeholder="AI, wellness, 고령화"
-                            onChange={(event) => setSourceForm((current) => ({ ...current, tags: event.target.value }))}
-                          />
-                        </label>
-                        <div className="sourceFormActions">
-                          <button
-                            className="primary"
-                            disabled={loading || !sourceForm.title.trim() || !sourceForm.url.trim()}
-                          >
-                            Add Source
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSourceForm({ title: "", url: "", sourceType: "external_source", reliability: "high", priority: 2, summary: "", tags: "" })}
-                          >
-                            초기화
-                          </button>
-                        </div>
-                      </form>
-                    ) : null}
+                <section className="kmShortcut">
+                  <h3>Knowledge Sources</h3>
+                  <p className="emptySmall">
+                    이 Agent의 Knowledge Source는 <strong>Knowledge Manager</strong>에서 통합 관리합니다.
+                  </p>
+                  <div className="kmShortcutMeta">
+                    <span className="meta">{(selectedStudioAgent.knowledgeSources ?? []).length}개 연결됨</span>
+                    <button type="button" onClick={() => setTab("knowledge")}>
+                      Knowledge Manager 열기 →
+                    </button>
                   </div>
                 </section>
 
@@ -1204,6 +1221,145 @@ export default function Home() {
             </div>
           </div>
           </section>
+        </section>
+      ) : null}
+
+      {tab === "knowledge" ? (
+        <section className="stack">
+          <div className="sectionHead panel kmHeader">
+            <div>
+              <p className="eyebrow">AI Knowledge Manager</p>
+              <h2>지식 통합 관리</h2>
+              <p>4개 Agent의 Knowledge Source를 한 곳에서 열람·수정·삭제합니다.</p>
+            </div>
+            <span className="meta">{allKmSources.length}개 Source</span>
+          </div>
+
+          {/* Add Source */}
+          <div className="panel kmAddPanel">
+            <h3>Add Knowledge Source</h3>
+            <div className="kmAddTop">
+              <label className="kmAgentSelect">
+                Agent
+                <select value={kmAddAgentId} onChange={e => setKmAddAgentId(e.target.value)}>
+                  {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </label>
+              <form className="quickAddRow kmUrlRow" onSubmit={fetchKmPreview}>
+                <input
+                  className="quickUrlInput"
+                  value={kmQuickUrl}
+                  onChange={e => setKmQuickUrl(e.target.value)}
+                  placeholder="https://... URL 입력"
+                  type="url"
+                />
+                <button type="submit" disabled={kmFetchingUrl || !kmQuickUrl.trim()}>
+                  {kmFetchingUrl ? "불러오는 중…" : "Fetch"}
+                </button>
+              </form>
+            </div>
+            {(kmAddForm.url || kmAddForm.title) ? (
+              <form className="sourceForm kmDetailForm" onSubmit={addKmSource}>
+                <label>Title<input value={kmAddForm.title} onChange={e => setKmAddForm(f => ({ ...f, title: e.target.value }))} /></label>
+                <label>URL<input value={kmAddForm.url} onChange={e => setKmAddForm(f => ({ ...f, url: e.target.value }))} /></label>
+                <label>Summary<textarea rows={3} value={kmAddForm.summary} onChange={e => setKmAddForm(f => ({ ...f, summary: e.target.value }))} /></label>
+                <div className="sourceMetaGrid">
+                  <label>Type<input value={kmAddForm.sourceType} onChange={e => setKmAddForm(f => ({ ...f, sourceType: e.target.value }))} /></label>
+                  <label>Reliability
+                    <select value={kmAddForm.reliability} onChange={e => setKmAddForm(f => ({ ...f, reliability: e.target.value as KnowledgeSource["reliability"] }))}>
+                      <option value="very_high">very_high</option>
+                      <option value="high">high</option>
+                      <option value="medium">medium</option>
+                      <option value="low">low</option>
+                    </select>
+                  </label>
+                  <label>Priority<input type="number" min="1" max="5" value={kmAddForm.priority} onChange={e => setKmAddForm(f => ({ ...f, priority: Number(e.target.value) }))} /></label>
+                </div>
+                <label>Tags<input value={kmAddForm.tags} placeholder="AI, wellness, 고령화" onChange={e => setKmAddForm(f => ({ ...f, tags: e.target.value }))} /></label>
+                <div className="sourceFormActions">
+                  <button className="primary" disabled={kmLoadingState || !kmAddForm.title.trim() || !kmAddForm.url.trim()}>Add Source</button>
+                  <button type="button" onClick={() => setKmAddForm({ title: "", url: "", sourceType: "external_source", reliability: "high", priority: 2, summary: "", tags: "" })}>초기화</button>
+                </div>
+              </form>
+            ) : null}
+          </div>
+
+          {/* Filter bar */}
+          <div className="kmFilterBar">
+            <div className="kmAgentTabs">
+              <button className={kmAgentFilter === "all" ? "active" : ""} onClick={() => setKmAgentFilter("all")}>전체 ({allKmSources.length})</button>
+              {agents.map(a => (
+                <button key={a.id} className={kmAgentFilter === a.id ? "active" : ""} onClick={() => setKmAgentFilter(a.id)}>
+                  {a.name.split(" ")[0]} ({allKmSources.filter(s => s.agentId === a.id).length})
+                </button>
+              ))}
+            </div>
+            <input className="sourceSearch kmSearchInput" value={kmSearch} onChange={e => setKmSearch(e.target.value)} placeholder="제목·요약·도메인 검색" />
+          </div>
+
+          {/* Source list */}
+          {kmLoadingState ? (
+            <p className="empty">로딩 중…</p>
+          ) : kmFilteredSources.length === 0 ? (
+            <p className="empty">Knowledge Source가 없습니다.</p>
+          ) : (
+            <div className="kmSourceList">
+              {kmFilteredSources.map(source => (
+                <article className="kmSourceItem" key={source.id}>
+                  {editingKmId === source.id ? (
+                    <form className="kmEditForm" onSubmit={saveKmEdit}>
+                      <div className="kmEditHeader">
+                        <span className={`kmAgentBadge agent-${source.agentId}`}>{source.agentId}</span>
+                        <span className="meta">편집 중</span>
+                      </div>
+                      <label>Title<input value={kmEditForm.title} onChange={e => setKmEditForm(f => ({ ...f, title: e.target.value }))} /></label>
+                      <label>Summary<textarea rows={4} value={kmEditForm.summary} onChange={e => setKmEditForm(f => ({ ...f, summary: e.target.value }))} /></label>
+                      <div className="sourceMetaGrid">
+                        <label>Reliability
+                          <select value={kmEditForm.reliability} onChange={e => setKmEditForm(f => ({ ...f, reliability: e.target.value as KnowledgeSource["reliability"] }))}>
+                            <option value="very_high">very_high</option>
+                            <option value="high">high</option>
+                            <option value="medium">medium</option>
+                            <option value="low">low</option>
+                          </select>
+                        </label>
+                        <label>Priority<input type="number" min="1" max="5" value={kmEditForm.priority} onChange={e => setKmEditForm(f => ({ ...f, priority: Number(e.target.value) }))} /></label>
+                        <label>Domain ID<input value={kmEditForm.domainId} placeholder="1-1" onChange={e => setKmEditForm(f => ({ ...f, domainId: e.target.value }))} /></label>
+                      </div>
+                      <label>Tags<input value={kmEditForm.tags} onChange={e => setKmEditForm(f => ({ ...f, tags: e.target.value }))} /></label>
+                      <div className="kmEditActions">
+                        <button className="primary" type="submit">저장</button>
+                        <button type="button" onClick={() => setEditingKmId(null)}>취소</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="kmItemHead">
+                        <div className="kmItemLeft">
+                          <span className={`kmAgentBadge agent-${source.agentId}`}>{source.agentId}</span>
+                          {source.domainId ? <span className="kmDomainBadge">{source.domainId}</span> : null}
+                          <strong className="kmItemTitle">{source.title}</strong>
+                        </div>
+                        <div className="kmItemActions">
+                          <button type="button" onClick={() => startEditKm(source)}>편집</button>
+                          <button type="button" className="kmDeleteBtn" onClick={() => { if (confirm(`"${source.title}" 삭제하시겠습니까?`)) deleteKmSource(source.id); }}>삭제</button>
+                        </div>
+                      </div>
+                      <a className="kmItemUrl" href={source.url} target="_blank" rel="noreferrer">{source.url}</a>
+                      <p className="kmItemSummary">{source.summary}</p>
+                      <div className="kmItemMeta">
+                        <span className={`insightBadge rel-${source.reliability}`}>{source.reliability}</span>
+                        <span className="insightBadge">P{source.priority}</span>
+                        <span className="insightBadge">{source.sourceType}</span>
+                        <span className={`insightBadge status-${source.contentStatus}`}>{source.contentStatus}{source.chunkCount > 0 ? ` · ${source.chunkCount}chunk` : ""}</span>
+                        <button type="button" className="kmIndexBtn" onClick={() => ingestKmSource(source, "fetch")} disabled={kmLoadingState}>Index URL</button>
+                      </div>
+                    </>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
         </section>
       ) : null}
 
