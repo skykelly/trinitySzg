@@ -44,12 +44,87 @@ export function buildSuperAgentPrompt(params: {
   const outputInstruction: Record<string, string> = {
     future_life_answer:
       "고객의 미래 생활 변화를 종합 분석하고 response template 전체 섹션을 채워라.",
-    scenario:
-      "# 미래 생활 변화 시나리오 섹션에만 집중해서 작성해라. 시나리오마다 특정 고객의 하루 생활 장면으로 구체적으로 묘사해라. 다른 섹션은 작성하지 마라.",
-    business_opportunity:
-      "# 사업 기회 섹션과 # 실행 우선순위 섹션만 작성해라. 다른 섹션은 작성하지 마라.",
-    executive_brief:
-      "# 핵심 결론과 # 최종 추천만 작성해라. 전체 분량은 500자 이내로 간결하게 작성해라. 다른 섹션은 작성하지 마라."
+    scenario: `아래 구조로 3개 시나리오만 작성해라. 다른 섹션은 작성하지 마라.
+
+## 1. Most Likely Scenario
+### 고객 하루 생활 장면
+특정 고객(이름, 상황 포함)의 하루를 3~5문장으로 구체적으로 묘사해라.
+
+### AI의 역할
+이 시나리오에서 AI가 수행하는 역할
+
+### 필요한 기술 조건
+이 시나리오 실현에 필요한 기술 전제 조건
+
+### 필요한 사업 조건
+이 시나리오 실현에 필요한 사업·조직 조건
+
+### 핵심 가정
+이 시나리오가 성립하는 핵심 가정 2~3가지
+
+## 2. High Upside Scenario
+### 고객 하루 생활 장면
+[동일 구조]
+### AI의 역할
+### 필요한 기술 조건
+### 필요한 사업 조건
+### 핵심 가정
+
+## 3. Overhyped Scenario
+### 고객 하루 생활 장면
+[동일 구조 — 단, 과장되거나 실현 어려운 장면]
+### AI의 역할
+### 왜 과장인가
+### 현실적 대안`,
+    business_opportunity: `아래 두 섹션만 작성해라. 다른 섹션은 작성하지 마라.
+
+# 사업 기회
+## 제품
+제품 판매 관련 사업 기회와 아이디어
+
+## 서비스
+구독·케어·유지보수 관련 서비스 사업 기회
+
+## B2B
+기업 대상 B2B 사업 기회
+
+# 실행 우선순위
+## Now
+지금 즉시 실행 가능한 것
+
+## Next
+6~12개월 내 준비·실행할 것
+
+## Later
+장기적으로 검토할 것`,
+    executive_brief: `아래 섹션만 작성해라. 다른 섹션은 작성하지 마라.
+
+# 핵심 결론
+2~3문장으로 핵심 판단을 요약해라.
+
+# 도메인 해석
+- 관련 도메인:
+- 고객 세그먼트:
+- 시간축:
+
+# 근거 기반 현재 신호
+## 정량 Evidence
+제공된 Archive나 Evidence에서 확인된 수치만 사용. 없으면 "정량 근거 부족"이라고 표시.
+## Archive Signal
+Archive에서 확인된 현재 시장 신호
+## 기존 Agent Debate Insight
+Debate Insight가 있으면 요약. 없으면 생략.
+
+# 최종 추천
+실행 가능한 추천 2~3가지를 번호 목록으로.
+
+# 스코어카드
+| 항목 | 점수 (/5) | 근거 |
+|---|---|---|
+| Evidence Grounding | |  |
+| Future Life Relevance | | |
+| Business Realism | | |
+| Actionability | | |`
   };
 
   const sourcesBlock =

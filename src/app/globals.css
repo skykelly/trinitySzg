@@ -1508,6 +1508,141 @@ select:focus {
 
 a.refItem:hover { color: var(--accent); }
 
+/* ── Future Life Agent Result Tabs ─────────────────────────────────────── */
+
+.resultTabBar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #34312d;
+  margin-bottom: -1px;
+}
+
+.resultTabBtn {
+  padding: 10px 18px;
+  font-size: 0.85em;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: #7a756e;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.resultTabBtn:hover { color: #c8c0b4; background: #1e1c19; }
+
+.resultTabBtn.active {
+  background: var(--surface-card);
+  border-color: #34312d;
+  color: #faf9f5;
+  font-weight: 600;
+  border-bottom-color: var(--surface-card);
+}
+
+.resultTabBtn.done { color: #c8c0b4; }
+.resultTabBtn.active.done { color: #faf9f5; }
+
+.tabSpinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(204,120,92,0.3);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.tabDone {
+  font-size: 0.75em;
+  color: #6abf85;
+}
+
+.resultLoading {
+  color: #7a756e;
+  font-size: 0.88em;
+  padding: 32px 0;
+  text-align: center;
+}
+
+/* ── Scenario View ──────────────────────────────────────────────────────── */
+
+.scenarioList {
+  display: grid;
+  gap: 20px;
+}
+
+.scenarioCard {
+  border: 1px solid #2e2b27;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.scenarioTitle {
+  font-size: 1em;
+  font-weight: 700;
+  padding: 12px 18px;
+  background: #1e1c19;
+  border-bottom: 1px solid #2e2b27;
+  margin: 0;
+  color: #faf9f5;
+}
+
+.scenarioPrimary {
+  padding: 16px 18px;
+  border-bottom: 1px solid #2e2b27;
+}
+
+.scenarioPrimary h3 {
+  font-size: 0.8em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  margin: 0 0 10px;
+}
+
+.scenarioDetail {
+  border-bottom: 1px solid #2a2723;
+}
+
+.scenarioDetail:last-child { border-bottom: none; }
+
+.scenarioDetail summary {
+  padding: 10px 18px;
+  font-size: 0.82em;
+  font-weight: 600;
+  color: #7a756e;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scenarioDetail summary::before {
+  content: "▶";
+  font-size: 0.65em;
+  color: #5a5550;
+  transition: transform 0.15s;
+}
+
+.scenarioDetail[open] summary::before { transform: rotate(90deg); }
+.scenarioDetail summary:hover { color: #c8c0b4; }
+.scenarioDetail summary::-webkit-details-marker { display: none; }
+
+.scenarioDetail > *:not(summary) {
+  padding: 8px 18px 14px;
+  font-size: 0.87em;
+  color: #a09890;
+  line-height: 1.6;
+}
+
 /* ── Save as Agent Opinion ──────────────────────────────────────────────── */
 
 .bubbleActions {

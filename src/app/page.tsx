@@ -64,14 +64,12 @@ export default function Home() {
 
   // Future Life Agent
   const [superQuestion, setSuperQuestion] = useState("");
-  const [superDomainId, setSuperDomainId] = useState("");
   const [superTimeHorizon, setSuperTimeHorizon] = useState<"1y" | "3y" | "5y" | "10y">("3y");
-  const [superCustomerSegment, setSuperCustomerSegment] = useState("");
-  const [superOutputType, setSuperOutputType] = useState("future_life_answer");
   const [superIncludeDebate, setSuperIncludeDebate] = useState(true);
   const [superIncludeOpinions, setSuperIncludeOpinions] = useState(false);
-  const [superAnswer, setSuperAnswer] = useState<SuperAnswerResult | null>(null);
-  const [superLoading, setSuperLoading] = useState(false);
+  const [answerByType, setAnswerByType] = useState<{ scenario: SuperAnswerResult | null; business: SuperAnswerResult | null; executive: SuperAnswerResult | null }>({ scenario: null, business: null, executive: null });
+  const [loadingByType, setLoadingByType] = useState({ scenario: false, business: false, executive: false });
+  const [resultTab, setResultTab] = useState<"scenario" | "business" | "executive">("scenario");
 
   // Save as Agent Opinion
   const [opinionFormIndex, setOpinionFormIndex] = useState<number | null>(null);
@@ -555,31 +553,39 @@ export default function Home() {
   async function askSuperAgent(event: FormEvent) {
     event.preventDefault();
     if (!superQuestion.trim()) return;
-    setSuperLoading(true);
-    setSuperAnswer(null);
+    setAnswerByType({ scenario: null, business: null, executive: null });
+    setLoadingByType({ scenario: true, business: true, executive: true });
+    setResultTab("scenario");
     setNotice("");
-    try {
-      const res = await fetch("/api/super-agent/answer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: superQuestion.trim(),
-          domainId: superDomainId.trim() || undefined,
-          timeHorizon: superTimeHorizon,
-          customerSegment: superCustomerSegment.trim() || undefined,
-          outputType: superOutputType,
-          includeDebateKnowledge: superIncludeDebate,
-          includeAgentOpinions: superIncludeOpinions
-        })
-      });
-      const data = (await res.json()) as SuperAnswerResult & { error?: string };
-      if (!res.ok || !data.answerMarkdown) throw new Error(data.error ?? "답변 생성 실패");
-      setSuperAnswer(data);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "답변 생성 실패");
-    } finally {
-      setSuperLoading(false);
-    }
+
+    const base = {
+      question: superQuestion.trim(),
+      timeHorizon: superTimeHorizon,
+      includeDebateKnowledge: superIncludeDebate,
+      includeAgentOpinions: superIncludeOpinions
+    };
+
+    const callOne = async (outputType: string, key: "scenario" | "business" | "executive") => {
+      try {
+        const res = await fetch("/api/super-agent/answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...base, outputType })
+        });
+        const data = (await res.json()) as SuperAnswerResult & { error?: string };
+        if (!res.ok || !data.answerMarkdown) throw new Error(data.error ?? "답변 생성 실패");
+        setAnswerByType(prev => ({ ...prev, [key]: data }));
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : `${key} 답변 생성 실패`);
+      } finally {
+        setLoadingByType(prev => ({ ...prev, [key]: false }));
+      }
+    };
+
+    // 3개 동시 병렬 호출 — Future Scenario가 먼저 도착하면 바로 표시됨
+    callOne("scenario", "scenario");
+    callOne("business_opportunity", "business");
+    callOne("executive_brief", "executive");
   }
 
   function openOpinionForm(index: number, content: string) {
@@ -788,11 +794,12 @@ export default function Home() {
         if (!res.ok || !data.answer) throw new Error(data.error ?? "답변을 불러오지 못했습니다.");
         setTab("future");
         setSuperQuestion(item.question);
-        setSuperAnswer({
-          answerId: data.answer.id,
-          answerMarkdown: data.answer.answerMarkdown,
-          references: { knowledgeSources: [], debateInsights: [], agentOpinions: [] }
+        setAnswerByType({
+          scenario: { answerId: data.answer.id, answerMarkdown: data.answer.answerMarkdown, references: { knowledgeSources: [], debateInsights: [], agentOpinions: [] } },
+          business: null,
+          executive: null
         });
+        setResultTab("scenario");
       } else {
         const res = await fetch(`/api/conversations/${item.id}`);
         const data = (await res.json()) as { conversation?: ConversationResult; error?: string };
@@ -1394,15 +1401,6 @@ export default function Home() {
                     <option value="10y">10년</option>
                   </select>
                 </label>
-                <label className="futureInlineLabel">
-                  <span>Output Type</span>
-                  <select value={superOutputType} onChange={(e) => setSuperOutputType(e.target.value)}>
-                    <option value="future_life_answer">Future Life Answer</option>
-                    <option value="scenario">Scenario</option>
-                    <option value="business_opportunity">Business Opportunity</option>
-                    <option value="executive_brief">Executive Brief</option>
-                  </select>
-                </label>
                 <label className="checkboxLabel">
                   <input type="checkbox" checked={superIncludeDebate} onChange={(e) => setSuperIncludeDebate(e.target.checked)} />
                   Debate Knowledge
@@ -1412,51 +1410,84 @@ export default function Home() {
                   Agent Opinions
                 </label>
               </div>
-              <button className="primary" disabled={superLoading || !superQuestion.trim()}>
-                {superLoading ? "분석 중…" : "Ask Future Life Agent"}
+              <button className="primary" disabled={(loadingByType.scenario || loadingByType.business || loadingByType.executive) || !superQuestion.trim()}>
+                {(loadingByType.scenario || loadingByType.business || loadingByType.executive) ? "분석 중…" : "Ask Future Life Agent"}
               </button>
             </form>
 
-            {superAnswer ? (
+            {(answerByType.scenario || answerByType.business || answerByType.executive ||
+              loadingByType.scenario || loadingByType.business || loadingByType.executive) ? (
               <div className="futureAnswer">
+                {/* Result tabs */}
+                <div className="resultTabBar">
+                  {(["scenario", "business", "executive"] as const).map(key => {
+                    const labels = { scenario: "Future Scenario", business: "Business Opportunity", executive: "Executive Summary" };
+                    const isLoading = loadingByType[key];
+                    const isDone = !isLoading && !!answerByType[key];
+                    return (
+                      <button
+                        key={key}
+                        className={`resultTabBtn${resultTab === key ? " active" : ""}${isLoading ? " loading" : ""}${isDone ? " done" : ""}`}
+                        onClick={() => setResultTab(key)}
+                      >
+                        {labels[key]}
+                        {isLoading ? <span className="tabSpinner" /> : isDone ? <span className="tabDone">✓</span> : null}
+                      </button>
+                    );
+                  })}
+                </div>
                 <section className="panel futureAnswerPanel">
-                  <Markdownish text={superAnswer.answerMarkdown} />
+                  {resultTab === "scenario" && (
+                    loadingByType.scenario
+                      ? <p className="resultLoading">Future Scenario 생성 중…</p>
+                      : answerByType.scenario
+                        ? <ScenarioView markdown={answerByType.scenario.answerMarkdown} />
+                        : null
+                  )}
+                  {resultTab === "business" && (
+                    loadingByType.business
+                      ? <p className="resultLoading">Business Opportunity 생성 중…</p>
+                      : answerByType.business
+                        ? <Markdownish text={answerByType.business.answerMarkdown} />
+                        : null
+                  )}
+                  {resultTab === "executive" && (
+                    loadingByType.executive
+                      ? <p className="resultLoading">Executive Summary 생성 중…</p>
+                      : answerByType.executive
+                        ? <Markdownish text={answerByType.executive.answerMarkdown} />
+                        : null
+                  )}
                 </section>
-                {(superAnswer.references.knowledgeSources.length > 0 ||
-                  superAnswer.references.debateInsights.length > 0 ||
-                  superAnswer.references.agentOpinions.length > 0) ? (
-                  <details className="panel referencesPanel">
-                    <summary><strong>참고한 지식</strong></summary>
-                    {superAnswer.references.knowledgeSources.length > 0 ? (
-                      <div className="refGroup">
-                        <p className="refGroupTitle">Knowledge Sources</p>
-                        {superAnswer.references.knowledgeSources.map((s) => (
-                          <a key={s.id} className="refItem" href={s.url} target="_blank" rel="noreferrer">{s.title}</a>
-                        ))}
-                      </div>
-                    ) : null}
-                    {superAnswer.references.debateInsights.length > 0 ? (
-                      <div className="refGroup">
-                        <p className="refGroupTitle">Debate Insights</p>
-                        {superAnswer.references.debateInsights.map((i) => (
-                          <span key={i.id} className="refItem">
-                            <span className="insightType">{i.insightType}</span> {i.title}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {superAnswer.references.agentOpinions.length > 0 ? (
-                      <div className="refGroup">
-                        <p className="refGroupTitle">Agent Opinions</p>
-                        {superAnswer.references.agentOpinions.map((o) => (
-                          <span key={o.id} className="refItem">
-                            <span className="insightBadge">{o.agentId}</span> {o.claim}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </details>
-                ) : null}
+                {(() => {
+                  const active = answerByType[resultTab];
+                  if (!active) return null;
+                  const { knowledgeSources, debateInsights, agentOpinions } = active.references;
+                  if (!knowledgeSources.length && !debateInsights.length && !agentOpinions.length) return null;
+                  return (
+                    <details className="panel referencesPanel">
+                      <summary><strong>참고한 지식</strong></summary>
+                      {knowledgeSources.length > 0 && (
+                        <div className="refGroup">
+                          <p className="refGroupTitle">Knowledge Sources</p>
+                          {knowledgeSources.map(s => <a key={s.id} className="refItem" href={s.url} target="_blank" rel="noreferrer">{s.title}</a>)}
+                        </div>
+                      )}
+                      {debateInsights.length > 0 && (
+                        <div className="refGroup">
+                          <p className="refGroupTitle">Debate Insights</p>
+                          {debateInsights.map(i => <span key={i.id} className="refItem"><span className="insightType">{i.insightType}</span> {i.title}</span>)}
+                        </div>
+                      )}
+                      {agentOpinions.length > 0 && (
+                        <div className="refGroup">
+                          <p className="refGroupTitle">Agent Opinions</p>
+                          {agentOpinions.map(o => <span key={o.id} className="refItem"><span className="insightBadge">{o.agentId}</span> {o.claim}</span>)}
+                        </div>
+                      )}
+                    </details>
+                  );
+                })()}
               </div>
             ) : null}
           </div>
@@ -1790,6 +1821,57 @@ function extractSection(conclusion: string, heading: string, fallback = true) {
   const section = conclusion.match(pattern)?.[1]?.trim();
   if (section) return section;
   return fallback ? `${heading} 정보는 최종 결론에 포함되어 있지 않습니다.` : "";
+}
+
+function parseScenarios(markdown: string) {
+  const scenarios: Array<{ title: string; sections: Array<{ title: string; content: string }> }> = [];
+  let currentScenario: typeof scenarios[0] | null = null;
+  let currentSection: { title: string; content: string } | null = null;
+
+  for (const line of markdown.split("\n")) {
+    if (line.startsWith("## ")) {
+      if (currentSection && currentScenario) currentScenario.sections.push(currentSection);
+      if (currentScenario) scenarios.push(currentScenario);
+      currentScenario = { title: line.slice(3).trim(), sections: [] };
+      currentSection = null;
+    } else if (line.startsWith("### ") && currentScenario) {
+      if (currentSection) currentScenario.sections.push(currentSection);
+      currentSection = { title: line.slice(4).trim(), content: "" };
+    } else if (currentSection) {
+      currentSection.content += line + "\n";
+    }
+  }
+  if (currentSection && currentScenario) currentScenario.sections.push(currentSection);
+  if (currentScenario) scenarios.push(currentScenario);
+  return scenarios;
+}
+
+function ScenarioView({ markdown }: { markdown: string }) {
+  const scenarios = parseScenarios(markdown);
+  if (scenarios.length === 0) return <Markdownish text={markdown} />;
+  return (
+    <div className="scenarioList">
+      {scenarios.map((scenario, i) => (
+        <div key={i} className="scenarioCard">
+          <h2 className="scenarioTitle">{scenario.title}</h2>
+          {scenario.sections.map((section, j) => {
+            const isPrimary = section.title.includes("하루 생활 장면");
+            return isPrimary ? (
+              <div key={j} className="scenarioPrimary">
+                <h3>{section.title}</h3>
+                <Markdownish text={section.content.trim()} />
+              </div>
+            ) : (
+              <details key={j} className="scenarioDetail">
+                <summary>{section.title}</summary>
+                <Markdownish text={section.content.trim()} />
+              </details>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function Markdownish({ text }: { text: string }) {
