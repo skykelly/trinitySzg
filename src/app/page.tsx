@@ -1376,6 +1376,7 @@ export default function Home() {
             <div>
               <p className="eyebrow">Future Life Agent</p>
               <h2>AI로 인한 고객 미래 생활 변화 분석</h2>
+              <p className="futureSubtitle">AI로 변화할 고객의 생활 운영방식의 변화와 사업 기회를 검토합니다.</p>
             </div>
           </div>
           <div className="futureLayout">
