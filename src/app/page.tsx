@@ -1382,12 +1382,6 @@ export default function Home() {
           <div className="futureLayout">
             <form className="panel futureInput" onSubmit={askSuperAgent} ref={futureFormRef}>
               <div className="futureInputRow">
-                <button
-                  className="primary futureSubmitBtn"
-                  disabled={(loadingByType.scenario || loadingByType.business || loadingByType.executive) || !superQuestion.trim()}
-                >
-                  {(loadingByType.scenario || loadingByType.business || loadingByType.executive) ? "분석 중…" : "Ask Future Life Agent"}
-                </button>
                 <textarea
                   className="futureTextarea"
                   rows={1}
@@ -1396,6 +1390,12 @@ export default function Home() {
                   onKeyDown={superQuestionKeyDown}
                   placeholder="예) 2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까? — Tab으로 예시 입력 · Enter로 제출"
                 />
+                <button
+                  className="primary futureSubmitBtn"
+                  disabled={(loadingByType.scenario || loadingByType.business || loadingByType.executive) || !superQuestion.trim()}
+                >
+                  {(loadingByType.scenario || loadingByType.business || loadingByType.executive) ? "분석 중…" : "Ask Future Life Agent"}
+                </button>
               </div>
               <div className="futureOptionsRow">
                 <label className="futureInlineLabel">
