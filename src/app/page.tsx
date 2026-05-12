@@ -64,7 +64,7 @@ export default function Home() {
 
   // Future Life Agent
   const [superQuestion, setSuperQuestion] = useState("");
-  const [superTimeHorizon, setSuperTimeHorizon] = useState<"1y" | "3y" | "5y" | "10y">("3y");
+  const [superTimeHorizon, setSuperTimeHorizon] = useState<"3y" | "5y" | "10y">("5y");
   const [superIncludeDebate, setSuperIncludeDebate] = useState(true);
   const [superIncludeOpinions, setSuperIncludeOpinions] = useState(false);
   const [answerByType, setAnswerByType] = useState<{ scenario: SuperAnswerResult | null; business: SuperAnswerResult | null; executive: SuperAnswerResult | null }>({ scenario: null, business: null, executive: null });
@@ -1381,21 +1381,26 @@ export default function Home() {
           </div>
           <div className="futureLayout">
             <form className="panel futureInput" onSubmit={askSuperAgent} ref={futureFormRef}>
-              <label className="futureQuestionLabel">
-                Question
+              <div className="futureInputRow">
+                <button
+                  className="primary futureSubmitBtn"
+                  disabled={(loadingByType.scenario || loadingByType.business || loadingByType.executive) || !superQuestion.trim()}
+                >
+                  {(loadingByType.scenario || loadingByType.business || loadingByType.executive) ? "분석 중…" : "Ask Future Life Agent"}
+                </button>
                 <textarea
-                  rows={3}
+                  className="futureTextarea"
+                  rows={1}
                   value={superQuestion}
                   onChange={(e) => setSuperQuestion(e.target.value)}
                   onKeyDown={superQuestionKeyDown}
                   placeholder="예) 2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까? — Tab으로 예시 입력 · Enter로 제출"
                 />
-              </label>
+              </div>
               <div className="futureOptionsRow">
                 <label className="futureInlineLabel">
                   <span>Time Horizon</span>
-                  <select value={superTimeHorizon} onChange={(e) => setSuperTimeHorizon(e.target.value as "1y" | "3y" | "5y" | "10y")}>
-                    <option value="1y">1년</option>
+                  <select value={superTimeHorizon} onChange={(e) => setSuperTimeHorizon(e.target.value as "3y" | "5y" | "10y")}>
                     <option value="3y">3년</option>
                     <option value="5y">5년</option>
                     <option value="10y">10년</option>
@@ -1410,9 +1415,6 @@ export default function Home() {
                   Agent Opinions
                 </label>
               </div>
-              <button className="primary" disabled={(loadingByType.scenario || loadingByType.business || loadingByType.executive) || !superQuestion.trim()}>
-                {(loadingByType.scenario || loadingByType.business || loadingByType.executive) ? "분석 중…" : "Ask Future Life Agent"}
-              </button>
             </form>
 
             {(answerByType.scenario || answerByType.business || answerByType.executive ||

@@ -1377,18 +1377,33 @@ select:focus {
 
 .futureInput {
   display: grid;
-  gap: 12px;
-  padding: 20px 24px;
+  gap: 10px;
+  padding: 16px 20px;
 }
 
-.futureQuestionLabel {
-  display: grid;
-  gap: 6px;
-  font-size: 0.8em;
-  color: #7a756e;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+.futureInputRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.futureSubmitBtn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  height: 40px;
+  padding: 0 16px;
+  font-size: 0.85em;
+}
+
+.futureTextarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  font-size: 1.025rem;
+  line-height: 1.5;
+  padding: 9px 12px;
+  height: 40px;
+  overflow: hidden;
 }
 
 .futureOptionsRow {
