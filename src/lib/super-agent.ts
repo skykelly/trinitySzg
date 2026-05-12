@@ -36,11 +36,21 @@ export function buildSuperAgentPrompt(params: {
   const contextBlock = [
     input.domainId ? `- domainId: ${input.domainId}` : null,
     input.timeHorizon ? `- timeHorizon: ${input.timeHorizon}` : null,
-    input.customerSegment ? `- customerSegment: ${input.customerSegment}` : null,
-    input.outputType ? `- outputType: ${input.outputType}` : null
+    input.customerSegment ? `- customerSegment: ${input.customerSegment}` : null
   ]
     .filter(Boolean)
     .join("\n");
+
+  const outputInstruction: Record<string, string> = {
+    future_life_answer:
+      "고객의 미래 생활 변화를 종합 분석하고 response template 전체 섹션을 채워라.",
+    scenario:
+      "# 미래 생활 변화 시나리오 섹션에만 집중해서 작성해라. 시나리오마다 특정 고객의 하루 생활 장면으로 구체적으로 묘사해라. 다른 섹션은 작성하지 마라.",
+    business_opportunity:
+      "# 사업 기회 섹션과 # 실행 우선순위 섹션만 작성해라. 다른 섹션은 작성하지 마라.",
+    executive_brief:
+      "# 핵심 결론과 # 최종 추천만 작성해라. 전체 분량은 500자 이내로 간결하게 작성해라. 다른 섹션은 작성하지 마라."
+  };
 
   const sourcesBlock =
     sources.length > 0
@@ -90,7 +100,7 @@ ${opinionsBlock}
 
 [INSTRUCTIONS]
 You are Future Life Intelligence Agent. Answer the user's question using the context above.
-Follow your response template exactly.
+${outputInstruction[input.outputType ?? "future_life_answer"] ?? outputInstruction["future_life_answer"]}
 Do not invent numbers.
 If quantitative evidence is not provided in the context, say that quantitative evidence is insufficient.
 You may provide directional qualitative judgment, but label it as assumption.
