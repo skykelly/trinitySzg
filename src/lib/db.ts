@@ -35,149 +35,82 @@ function getDb() {
 
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA busy_timeout = 5000;");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agents (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      role TEXT NOT NULL,
-      persona_type TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
-      tone TEXT NOT NULL DEFAULT '',
-      debate_style TEXT NOT NULL DEFAULT '',
-      provider TEXT NOT NULL,
-      model TEXT NOT NULL,
-      temperature REAL NOT NULL,
-      system_prompt TEXT NOT NULL,
-      knowledge TEXT NOT NULL,
-      judgment_criteria TEXT NOT NULL DEFAULT '',
-      debate_behavior TEXT NOT NULL DEFAULT '',
-      response_template TEXT NOT NULL DEFAULT '',
-      challenge_rules TEXT NOT NULL DEFAULT '',
-      evidence_rules TEXT NOT NULL DEFAULT '',
-      scorecard TEXT NOT NULL DEFAULT '',
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL,
+      persona_type TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
+      tone TEXT NOT NULL DEFAULT '', debate_style TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL, model TEXT NOT NULL, temperature REAL NOT NULL,
+      system_prompt TEXT NOT NULL, knowledge TEXT NOT NULL,
+      judgment_criteria TEXT NOT NULL DEFAULT '', debate_behavior TEXT NOT NULL DEFAULT '',
+      response_template TEXT NOT NULL DEFAULT '', challenge_rules TEXT NOT NULL DEFAULT '',
+      evidence_rules TEXT NOT NULL DEFAULT '', scorecard TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS conversations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      conversation_id INTEGER NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS debates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      question TEXT NOT NULL,
-      conclusion TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS debate_turns (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      debate_id INTEGER NOT NULL,
-      agent_id TEXT NOT NULL,
-      agent_name TEXT NOT NULL,
-      round TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS knowledge_sources (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      url TEXT NOT NULL,
-      source_type TEXT NOT NULL,
-      reliability TEXT NOT NULL,
-      priority INTEGER NOT NULL,
-      summary TEXT NOT NULL,
-      tags TEXT NOT NULL DEFAULT '[]',
-      content_status TEXT NOT NULL DEFAULT 'summary_only',
-      content_error TEXT NOT NULL DEFAULT '',
-      last_ingested_at TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      UNIQUE(agent_id, url)
-    );
-
-    CREATE TABLE IF NOT EXISTS knowledge_chunks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_id INTEGER NOT NULL,
-      chunk_index INTEGER NOT NULL,
-      content TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      UNIQUE(source_id, chunk_index)
-    );
-
-    CREATE TABLE IF NOT EXISTS domain_categories (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      sub TEXT NOT NULL DEFAULT '',
-      type TEXT NOT NULL DEFAULT '',
-      insight TEXT NOT NULL DEFAULT '',
+    )`,
+    `CREATE TABLE IF NOT EXISTS conversations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+      title TEXT NOT NULL, created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL,
+      role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS debates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT NOT NULL,
+      conclusion TEXT NOT NULL, created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS debate_turns (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, debate_id INTEGER NOT NULL,
+      agent_id TEXT NOT NULL, agent_name TEXT NOT NULL, round TEXT NOT NULL,
+      content TEXT NOT NULL, created_at TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS knowledge_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
+      title TEXT NOT NULL, url TEXT NOT NULL, source_type TEXT NOT NULL,
+      reliability TEXT NOT NULL, priority INTEGER NOT NULL, summary TEXT NOT NULL,
+      tags TEXT NOT NULL DEFAULT '[]', content_status TEXT NOT NULL DEFAULT 'summary_only',
+      content_error TEXT NOT NULL DEFAULT '', last_ingested_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(agent_id, url)
+    )`,
+    `CREATE TABLE IF NOT EXISTS knowledge_chunks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL,
+      chunk_index INTEGER NOT NULL, content TEXT NOT NULL,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(source_id, chunk_index)
+    )`,
+    `CREATE TABLE IF NOT EXISTS domain_categories (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, sub TEXT NOT NULL DEFAULT '',
+      type TEXT NOT NULL DEFAULT '', insight TEXT NOT NULL DEFAULT '',
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS debate_insights (
-      id TEXT PRIMARY KEY,
-      debate_id TEXT NOT NULL,
-      domain_id TEXT,
-      insight_type TEXT NOT NULL,
-      agent_id TEXT,
-      title TEXT NOT NULL,
-      content TEXT NOT NULL,
-      confidence TEXT DEFAULT 'medium',
-      evidence_level TEXT DEFAULT 'medium',
-      tags TEXT DEFAULT '[]',
+    )`,
+    `CREATE TABLE IF NOT EXISTS debate_insights (
+      id TEXT PRIMARY KEY, debate_id TEXT NOT NULL, domain_id TEXT,
+      insight_type TEXT NOT NULL, agent_id TEXT, title TEXT NOT NULL, content TEXT NOT NULL,
+      confidence TEXT DEFAULT 'medium', evidence_level TEXT DEFAULT 'medium',
+      tags TEXT DEFAULT '[]', status TEXT DEFAULT 'draft',
+      valid_until TEXT, reviewed_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS agent_opinions (
+      id TEXT PRIMARY KEY, conversation_id TEXT, message_id TEXT,
+      agent_id TEXT NOT NULL, domain_id TEXT, question TEXT NOT NULL,
+      claim TEXT NOT NULL, rationale TEXT, evidence_refs TEXT DEFAULT '[]',
+      confidence TEXT DEFAULT 'medium', score_json TEXT, tags TEXT DEFAULT '[]',
       status TEXT DEFAULT 'draft',
-      valid_until TEXT,
-      reviewed_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS agent_opinions (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT,
-      message_id TEXT,
-      agent_id TEXT NOT NULL,
-      domain_id TEXT,
-      question TEXT NOT NULL,
-      claim TEXT NOT NULL,
-      rationale TEXT,
-      evidence_refs TEXT DEFAULT '[]',
-      confidence TEXT DEFAULT 'medium',
-      score_json TEXT,
-      tags TEXT DEFAULT '[]',
-      status TEXT DEFAULT 'draft',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS super_agent_answers (
-      id TEXT PRIMARY KEY,
-      question TEXT NOT NULL,
-      domain_id TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS super_agent_answers (
+      id TEXT PRIMARY KEY, question TEXT NOT NULL, domain_id TEXT,
       answer_markdown TEXT NOT NULL,
-      referenced_archive_ids TEXT DEFAULT '[]',
-      referenced_evidence_ids TEXT DEFAULT '[]',
-      referenced_debate_ids TEXT DEFAULT '[]',
-      referenced_insight_ids TEXT DEFAULT '[]',
-      referenced_opinion_ids TEXT DEFAULT '[]',
-      answer_type TEXT DEFAULT 'future_life_answer',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
+      referenced_archive_ids TEXT DEFAULT '[]', referenced_evidence_ids TEXT DEFAULT '[]',
+      referenced_debate_ids TEXT DEFAULT '[]', referenced_insight_ids TEXT DEFAULT '[]',
+      referenced_opinion_ids TEXT DEFAULT '[]', answer_type TEXT DEFAULT 'future_life_answer',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`
+  ];
+
+  for (const sql of tables) {
+    db.exec(sql);
+  }
 
   ensureColumn(db, "agents", "persona_type", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "agents", "description", "TEXT NOT NULL DEFAULT ''");
@@ -704,13 +637,18 @@ export function getDebate(id: number): DebateResult | null {
 export function listRecents(limit = 30): RecentItem[] {
   const discussions: RecentItem[] = listDebates(limit).map((item) => ({ ...item, kind: "discussion" as const }));
   const chats: RecentItem[] = listConversations(limit).map((item) => ({ ...item, kind: "chat" as const }));
-  const answers: RecentItem[] = listSuperAgentAnswers(limit).map((item) => ({
-    kind: "answer" as const,
-    id: item.id,
-    question: item.question,
-    answerType: item.answerType,
-    createdAt: item.createdAt
-  }));
+  let answers: RecentItem[] = [];
+  try {
+    answers = listSuperAgentAnswers(limit).map((item) => ({
+      kind: "answer" as const,
+      id: item.id,
+      question: item.question,
+      answerType: item.answerType,
+      createdAt: item.createdAt
+    }));
+  } catch {
+    // super_agent_answers may not exist on older deployments; skip gracefully
+  }
   return [...discussions, ...chats, ...answers]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, limit);
