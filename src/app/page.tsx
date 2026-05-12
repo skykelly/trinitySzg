@@ -652,13 +652,6 @@ export default function Home() {
             </button>
           </div>
           <nav className="drawerNav">
-            <button
-              className={tab === "future" ? "active" : ""}
-              onClick={() => setTab("future")}
-            >
-              Future Life Agent
-              <span className="navHint">고객 미래생활 분석</span>
-            </button>
             <button className={tab === "debate" ? "active" : ""} onClick={() => { setTab("debate"); }}>
               Trinity Debate
               <span className="navHint">관점 토론</span>
@@ -676,6 +669,14 @@ export default function Home() {
             >
               Persona Studio
               <span className="navHint">학습/조정</span>
+            </button>
+            <hr className="navDivider" />
+            <button
+              className={`navFuture${tab === "future" ? " active" : ""}`}
+              onClick={() => setTab("future")}
+            >
+              Future Life Agent
+              <span className="navHint">고객 미래생활 분석</span>
             </button>
           </nav>
           <div className="recents">

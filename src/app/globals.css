@@ -256,6 +256,48 @@ h3 {
   box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.16);
 }
 
+.navDivider {
+  border: none;
+  border-top: 1px solid #34312d;
+  margin: 6px 0;
+}
+
+.navFuture {
+  min-height: 46px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.95em;
+  cursor: pointer;
+  color: #faf9f5;
+  background: linear-gradient(135deg, #2a1f18 0%, #1e1a16 100%);
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(204, 120, 92, 0.12), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.navFuture:hover {
+  background: linear-gradient(135deg, #3a2a1e 0%, #2a2018 100%);
+  box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.22);
+}
+
+.navFuture.active {
+  background: linear-gradient(135deg, #cc785c 0%, #a85a3e 100%);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.28);
+  color: #fff;
+}
+
+.navFuture.active .navHint {
+  color: rgba(255,255,255,0.65);
+}
+
+.navFuture .navHint {
+  color: rgba(204, 120, 92, 0.75);
+}
+
 .recents {
   display: grid;
   grid-template-rows: auto 1fr;
