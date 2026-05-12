@@ -1185,7 +1185,7 @@ export default function Home() {
               <input
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
-                placeholder="Ask This Agent"
+                placeholder="예) AI Home 어시스턴트가 가장 먼저 해결할 수 있는 생활 불편은?"
               />
               <button className="primary" disabled={loading || !chatInput.trim()}>
                 Ask This Agent
@@ -1225,7 +1225,7 @@ export default function Home() {
                   value={superQuestion}
                   onChange={(e) => setSuperQuestion(e.target.value)}
                   onKeyDown={superQuestionKeyDown}
-                  placeholder="Tab으로 예시 질문 입력 · Enter로 제출 · Shift+Enter 줄바꿈"
+                  placeholder="예) 2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까? — Tab으로 예시 입력 · Enter로 제출"
                 />
               </label>
               <div className="futureOptionsRow">
@@ -1362,7 +1362,7 @@ export default function Home() {
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={enterSubmit(debateFormRef)}
-              placeholder="Frame the Question  (Enter로 제출 · Shift+Enter 줄바꿈)"
+              placeholder="예) AI 가전 구독 서비스는 한국에서 실행 가능한 사업인가? — Enter로 제출"
             />
             <button className="primary" disabled={loading || !question.trim()}>
               Start Debate
