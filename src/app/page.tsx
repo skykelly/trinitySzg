@@ -1449,7 +1449,7 @@ export default function Home() {
                     loadingByType.business
                       ? <p className="resultLoading">Business Opportunity 생성 중…</p>
                       : answerByType.business
-                        ? <Markdownish text={answerByType.business.answerMarkdown} />
+                        ? <BusinessView markdown={answerByType.business.answerMarkdown} />
                         : null
                   )}
                   {resultTab === "executive" && (
@@ -1824,6 +1824,69 @@ function extractSection(conclusion: string, heading: string, fallback = true) {
   return fallback ? `${heading} 정보는 최종 결론에 포함되어 있지 않습니다.` : "";
 }
 
+function parseSections(markdown: string): Array<{ title: string; level: number; content: string }> {
+  const sections: Array<{ title: string; level: number; content: string }> = [];
+  let current: { title: string; level: number; content: string } | null = null;
+  for (const line of markdown.split("\n")) {
+    const m = line.match(/^(#{1,3})\s+(.+)$/);
+    if (m) {
+      if (current) sections.push(current);
+      current = { level: m[1].length, title: m[2].trim(), content: "" };
+    } else if (current) {
+      current.content += line + "\n";
+    }
+  }
+  if (current) sections.push(current);
+  return sections;
+}
+
+function BusinessView({ markdown }: { markdown: string }) {
+  const allSections = parseSections(markdown);
+  const h1Sections = allSections.filter(s => s.level === 1);
+
+  return (
+    <div className="businessView">
+      {h1Sections.map((h1, i) => {
+        const isPriority = h1.title.includes("실행");
+        const subSections = allSections.filter(s => {
+          const start = allSections.indexOf(h1);
+          const nextH1 = allSections.findIndex((s2, idx) => idx > start && s2.level === 1);
+          const end = nextH1 === -1 ? allSections.length : nextH1;
+          const idx = allSections.indexOf(s);
+          return s.level === 2 && idx > start && idx < end;
+        });
+        return (
+          <div key={i} className="bizSection">
+            <h2 className="bizSectionTitle">{h1.title}</h2>
+            {isPriority ? (
+              <div className="bizPriorityGrid">
+                {subSections.map((sub, j) => {
+                  const labelClass = sub.title === "Now" ? "now" : sub.title === "Next" ? "next" : "later";
+                  return (
+                    <div key={j} className={`bizPriorityCard ${labelClass}`}>
+                      <span className="bizPriorityLabel">{sub.title}</span>
+                      <Markdownish text={sub.content.trim()} />
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="bizCardGrid">
+                {subSections.map((sub, j) => (
+                  <div key={j} className="bizCard">
+                    <h3 className="bizCardTitle">{sub.title}</h3>
+                    <Markdownish text={sub.content.trim()} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function parseScenarios(markdown: string) {
   const scenarios: Array<{ title: string; sections: Array<{ title: string; content: string }> }> = [];
   let currentScenario: typeof scenarios[0] | null = null;
@@ -1881,27 +1944,33 @@ function Markdownish({ text }: { text: string }) {
 }
 
 type MarkdownBlock =
-  | { type: "heading"; level: 3 | 4; text: string }
+  | { type: "heading"; level: 1 | 2 | 3 | 4; text: string }
   | { type: "paragraph"; text: string }
   | { type: "ul"; items: string[] }
-  | { type: "ol"; items: string[] };
+  | { type: "ol"; items: string[] }
+  | { type: "table"; headers: string[]; rows: string[][] };
 
 function parseMarkdownBlocks(text: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = [];
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   let paragraph: string[] = [];
   let list: { type: "ul" | "ol"; items: string[] } | null = null;
+  let table: { headers: string[]; rows: string[][] } | null = null;
 
   function flushParagraph() {
     if (paragraph.length === 0) return;
     blocks.push({ type: "paragraph", text: paragraph.join(" ") });
     paragraph = [];
   }
-
   function flushList() {
     if (!list) return;
     blocks.push(list);
     list = null;
+  }
+  function flushTable() {
+    if (!table) return;
+    blocks.push({ type: "table", ...table });
+    table = null;
   }
 
   for (const rawLine of lines) {
@@ -1909,24 +1978,37 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     if (!line) {
       flushParagraph();
       flushList();
+      flushTable();
       continue;
     }
+
+    // Table row
+    if (line.startsWith("|")) {
+      if (/^[\|\s\-:]+$/.test(line)) continue; // separator row
+      const cells = line.split("|").slice(1, -1).map(c => c.trim());
+      flushParagraph();
+      flushList();
+      if (!table) {
+        table = { headers: cells, rows: [] };
+      } else {
+        table.rows.push(cells);
+      }
+      continue;
+    }
+    flushTable();
 
     const heading = line.match(/^(#{1,4})\s+(.+)$/);
     if (heading) {
       flushParagraph();
       flushList();
-      blocks.push({ type: "heading", level: heading[1].length <= 2 ? 3 : 4, text: heading[2] });
+      blocks.push({ type: "heading", level: heading[1].length as 1 | 2 | 3 | 4, text: heading[2] });
       continue;
     }
 
     const unordered = line.match(/^[-*]\s+(.+)$/);
     if (unordered) {
       flushParagraph();
-      if (!list || list.type !== "ul") {
-        flushList();
-        list = { type: "ul", items: [] };
-      }
+      if (!list || list.type !== "ul") { flushList(); list = { type: "ul", items: [] }; }
       list.items.push(unordered[1]);
       continue;
     }
@@ -1934,10 +2016,7 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
     const ordered = line.match(/^\d+[.)]\s+(.+)$/);
     if (ordered) {
       flushParagraph();
-      if (!list || list.type !== "ol") {
-        flushList();
-        list = { type: "ol", items: [] };
-      }
+      if (!list || list.type !== "ol") { flushList(); list = { type: "ol", items: [] }; }
       list.items.push(ordered[1]);
       continue;
     }
@@ -1948,21 +2027,39 @@ function parseMarkdownBlocks(text: string): MarkdownBlock[] {
 
   flushParagraph();
   flushList();
+  flushTable();
   return blocks;
 }
 
 function renderMarkdownBlock(block: MarkdownBlock, key: number) {
   if (block.type === "heading") {
-    const Heading = block.level === 3 ? "h3" : "h4";
-    return <Heading key={key}>{renderInlineMarkdown(block.text)}</Heading>;
+    if (block.level === 1) return <h2 key={key} className="mdH1">{renderInlineMarkdown(block.text)}</h2>;
+    if (block.level === 2) return <h3 key={key} className="mdH2">{renderInlineMarkdown(block.text)}</h3>;
+    if (block.level === 3) return <h4 key={key} className="mdH3">{renderInlineMarkdown(block.text)}</h4>;
+    return <h5 key={key}>{renderInlineMarkdown(block.text)}</h5>;
+  }
+
+  if (block.type === "table") {
+    return (
+      <div key={key} className="mdTableWrap">
+        <table className="mdTable">
+          <thead>
+            <tr>{block.headers.map((h, i) => <th key={i}>{renderInlineMarkdown(h)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row, i) => (
+              <tr key={i}>{row.map((cell, j) => <td key={j}>{renderInlineMarkdown(cell)}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
   }
 
   if (block.type === "ul") {
     return (
       <ul key={key}>
-        {block.items.map((item, index) => (
-          <li key={index}>{renderInlineMarkdown(item)}</li>
-        ))}
+        {block.items.map((item, index) => <li key={index}>{renderInlineMarkdown(item)}</li>)}
       </ul>
     );
   }
@@ -1970,9 +2067,7 @@ function renderMarkdownBlock(block: MarkdownBlock, key: number) {
   if (block.type === "ol") {
     return (
       <ol key={key}>
-        {block.items.map((item, index) => (
-          <li key={index}>{renderInlineMarkdown(item)}</li>
-        ))}
+        {block.items.map((item, index) => <li key={index}>{renderInlineMarkdown(item)}</li>)}
       </ol>
     );
   }

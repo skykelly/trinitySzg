@@ -1523,6 +1523,154 @@ select:focus {
 
 a.refItem:hover { color: var(--accent); }
 
+/* ── Answer panel heading styles (light bg) ────────────────────────────── */
+
+.futureAnswerPanel .mdH1 {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #1a1816;
+  margin: 1.4em 0 0.5em;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #e8e4df;
+}
+
+.futureAnswerPanel .mdH1:first-child { margin-top: 0; }
+
+.futureAnswerPanel .mdH2 {
+  font-size: 0.95em;
+  font-weight: 700;
+  color: #3a3530;
+  margin: 1.1em 0 0.4em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.futureAnswerPanel .mdH3 {
+  font-size: 0.88em;
+  font-weight: 600;
+  color: #5a5550;
+  margin: 0.8em 0 0.3em;
+}
+
+.futureAnswerPanel .markdownish p { color: #3a3530; line-height: 1.7; }
+.futureAnswerPanel .markdownish li { color: #3a3530; }
+.futureAnswerPanel .markdownish ul,
+.futureAnswerPanel .markdownish ol { padding-left: 1.4em; }
+
+/* ── Markdown table ─────────────────────────────────────────────────────── */
+
+.mdTableWrap {
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.mdTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+
+.mdTable th {
+  background: #f0ede8;
+  color: #1a1816;
+  font-weight: 700;
+  padding: 8px 12px;
+  text-align: left;
+  border: 1px solid #d8d4ce;
+  white-space: nowrap;
+}
+
+.mdTable td {
+  padding: 7px 12px;
+  border: 1px solid #e8e4df;
+  color: #3a3530;
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.mdTable tr:nth-child(even) td { background: #faf8f5; }
+.mdTable tr:hover td { background: #f5f2ee; }
+
+/* ── Business Opportunity View ──────────────────────────────────────────── */
+
+.businessView { display: grid; gap: 24px; }
+
+.bizSection {}
+
+.bizSectionTitle {
+  font-size: 1em;
+  font-weight: 700;
+  color: #1a1816;
+  margin: 0 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e8e4df;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.bizCardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.bizCard {
+  background: #faf8f5;
+  border: 1px solid #e8e4df;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.bizCardTitle {
+  font-size: 0.82em;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 10px;
+}
+
+.bizCard .markdownish p { font-size: 0.88em; color: #3a3530; line-height: 1.6; margin: 0; }
+.bizCard .markdownish li { font-size: 0.88em; color: #3a3530; }
+.bizCard .markdownish ul { padding-left: 1.2em; margin: 4px 0; }
+
+.bizPriorityGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.bizPriorityCard {
+  border-radius: 10px;
+  padding: 16px;
+  border-left: 4px solid;
+}
+
+.bizPriorityCard.now { background: #f0faf4; border-color: #4caf75; }
+.bizPriorityCard.next { background: #fdf8ed; border-color: #e6a817; }
+.bizPriorityCard.later { background: #eef4fd; border-color: #5a8ec0; }
+
+.bizPriorityLabel {
+  display: block;
+  font-size: 0.72em;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+
+.bizPriorityCard.now .bizPriorityLabel { color: #2e7d50; }
+.bizPriorityCard.next .bizPriorityLabel { color: #9c6f10; }
+.bizPriorityCard.later .bizPriorityLabel { color: #3a6a98; }
+
+.bizPriorityCard .markdownish p { font-size: 0.87em; color: #3a3530; line-height: 1.6; margin: 0; }
+.bizPriorityCard .markdownish li { font-size: 0.87em; color: #3a3530; }
+.bizPriorityCard .markdownish ul { padding-left: 1.2em; margin: 4px 0; }
+
+@media (max-width: 700px) {
+  .bizCardGrid, .bizPriorityGrid { grid-template-columns: 1fr; }
+}
+
 /* ── Future Life Agent Result Tabs ─────────────────────────────────────── */
 
 .resultTabBar {
@@ -1551,15 +1699,15 @@ a.refItem:hover { color: var(--accent); }
 .resultTabBtn:hover { color: #c8c0b4; background: #1e1c19; }
 
 .resultTabBtn.active {
-  background: var(--surface-card);
-  border-color: #34312d;
-  color: #faf9f5;
-  font-weight: 600;
-  border-bottom-color: var(--surface-card);
+  background: #f5f2ee;
+  border-color: #d0ccc6;
+  color: #1a1816;
+  font-weight: 700;
+  border-bottom-color: #f5f2ee;
 }
 
 .resultTabBtn.done { color: #c8c0b4; }
-.resultTabBtn.active.done { color: #faf9f5; }
+.resultTabBtn.active.done { color: #1a1816; }
 
 .tabSpinner {
   width: 10px;
