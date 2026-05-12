@@ -279,51 +279,60 @@ function ensureColumn(db: DatabaseSync, table: string, column: string, definitio
 }
 
 function seedMissingAgentFields(db: DatabaseSync) {
-  const update = db.prepare(`
-    UPDATE agents
-    SET
-      name = ?,
+  // Force-update all core prompt/knowledge fields for specialist agents.
+  // name is preserved so users who renamed agents in Persona Studio keep their changes.
+  const forceUpdate = db.prepare(`
+    UPDATE agents SET
+      role = ?,
+      description = ?,
+      tone = ?,
+      debate_style = ?,
+      system_prompt = ?,
+      knowledge = ?,
+      judgment_criteria = ?,
+      debate_behavior = ?,
+      response_template = ?,
+      challenge_rules = ?,
+      evidence_rules = ?,
+      scorecard = ?
+    WHERE id = ? AND agent_type = 'specialist_agent'
+  `);
+
+  // Soft-update for super_agent and other types: only fill empty fields
+  const softUpdate = db.prepare(`
+    UPDATE agents SET
       role = ?,
       persona_type = CASE WHEN persona_type = '' THEN ? ELSE persona_type END,
       description = CASE WHEN description = '' THEN ? ELSE description END,
       tone = CASE WHEN tone = '' THEN ? ELSE tone END,
       debate_style = CASE WHEN debate_style = '' THEN ? ELSE debate_style END,
-      system_prompt = CASE
-        WHEN system_prompt = '' OR system_prompt LIKE '당신은 % AI입니다.%' THEN ?
-        ELSE system_prompt
-      END,
-      knowledge = CASE
-        WHEN knowledge = '' OR knowledge LIKE '서비스는 3개의 AI 페르소나%' OR knowledge LIKE '서비스의 핵심 사용자%' OR knowledge LIKE '초기 목표는 과도한 기능%'
-        THEN ?
-        ELSE knowledge
-      END,
+      system_prompt = CASE WHEN system_prompt = '' THEN ? ELSE system_prompt END,
+      knowledge = CASE WHEN knowledge = '' THEN ? ELSE knowledge END,
       judgment_criteria = CASE WHEN judgment_criteria = '' THEN ? ELSE judgment_criteria END,
       debate_behavior = CASE WHEN debate_behavior = '' THEN ? ELSE debate_behavior END,
       response_template = CASE WHEN response_template = '' THEN ? ELSE response_template END,
       challenge_rules = CASE WHEN challenge_rules = '' THEN ? ELSE challenge_rules END,
       evidence_rules = CASE WHEN evidence_rules = '' THEN ? ELSE evidence_rules END,
       scorecard = CASE WHEN scorecard = '' THEN ? ELSE scorecard END
-    WHERE id = ?
+    WHERE id = ? AND agent_type != 'specialist_agent'
   `);
 
   for (const agent of defaultAgents) {
-    update.run(
-      agent.name,
-      agent.role,
-      agent.personaType,
-      agent.description,
-      agent.tone,
-      agent.debateStyle,
-      agent.systemPrompt,
-      agent.knowledge,
-      agent.judgmentCriteria,
-      agent.debateBehavior,
-      agent.responseTemplate,
-      agent.challengeRules,
-      agent.evidenceRules,
-      agent.scorecard,
-      agent.id
-    );
+    if (agent.agentType === "specialist_agent") {
+      forceUpdate.run(
+        agent.role, agent.description, agent.tone, agent.debateStyle,
+        agent.systemPrompt, agent.knowledge, agent.judgmentCriteria,
+        agent.debateBehavior, agent.responseTemplate, agent.challengeRules,
+        agent.evidenceRules, agent.scorecard, agent.id
+      );
+    } else {
+      softUpdate.run(
+        agent.role, agent.personaType, agent.description, agent.tone,
+        agent.debateStyle, agent.systemPrompt, agent.knowledge,
+        agent.judgmentCriteria, agent.debateBehavior, agent.responseTemplate,
+        agent.challengeRules, agent.evidenceRules, agent.scorecard, agent.id
+      );
+    }
   }
 }
 
