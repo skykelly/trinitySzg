@@ -1142,51 +1142,51 @@ select:focus {
   gap: 20px;
 }
 
+.futureHeader {
+  padding: 20px 24px;
+}
+
 .futureInput {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+  padding: 20px 24px;
 }
 
-.futureControls {
+.futureQuestionLabel {
   display: grid;
-  gap: 8px;
-}
-
-.futureSelectRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.futureSelectLabel {
+  gap: 6px;
   font-size: 0.8em;
   color: #7a756e;
-  white-space: nowrap;
-  width: 90px;
-  flex-shrink: 0;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
-.futureSelectRow select {
-  flex: 1;
-  min-width: 0;
-}
-
-.futureValueBadge {
-  font-size: 0.72em;
-  color: var(--accent);
-  background: rgba(204, 120, 92, 0.12);
-  border: 1px solid rgba(204, 120, 92, 0.25);
-  border-radius: 4px;
-  padding: 2px 8px;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.futureCheckboxRow {
+.futureOptionsRow {
   display: flex;
-  gap: 20px;
   align-items: center;
-  padding: 4px 0;
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+
+.futureInlineLabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.futureInlineLabel span {
+  font-size: 0.78em;
+  color: #7a756e;
+  white-space: nowrap;
+}
+
+.futureInlineLabel select {
+  height: 32px;
+  padding: 0 8px;
+  font-size: 0.82em;
 }
 
 .checkboxRow {
@@ -1198,16 +1198,17 @@ select:focus {
 .checkboxLabel {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.85em;
+  gap: 7px;
+  font-size: 0.82em;
   color: #c8c0b4;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .checkboxLabel input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
   accent-color: var(--accent);
   flex-shrink: 0;
 }

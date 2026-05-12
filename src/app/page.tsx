@@ -1184,7 +1184,7 @@ export default function Home() {
 
       {tab === "future" ? (
         <section className="stack">
-          <div className="sectionHead panel">
+          <div className="sectionHead panel futureHeader">
             <div>
               <p className="eyebrow">Future Life Agent</p>
               <h2>AI로 인한 고객 미래 생활 변화 분석</h2>
@@ -1193,7 +1193,7 @@ export default function Home() {
           </div>
           <div className="futureLayout">
             <form className="panel futureInput" onSubmit={askSuperAgent}>
-              <label>
+              <label className="futureQuestionLabel">
                 Question
                 <textarea
                   rows={3}
@@ -1202,37 +1202,33 @@ export default function Home() {
                   placeholder="2030년 AI Home은 한국 맞벌이 가구의 생활을 어떻게 바꿀까?"
                 />
               </label>
-              <div className="futureControls">
-                <div className="futureSelectRow">
-                  <span className="futureSelectLabel">Time Horizon</span>
+              <div className="futureOptionsRow">
+                <label className="futureInlineLabel">
+                  <span>Time Horizon</span>
                   <select value={superTimeHorizon} onChange={(e) => setSuperTimeHorizon(e.target.value as "1y" | "3y" | "5y" | "10y")}>
                     <option value="1y">1년</option>
                     <option value="3y">3년</option>
                     <option value="5y">5년</option>
                     <option value="10y">10년</option>
                   </select>
-                  <span className="futureValueBadge">{superTimeHorizon === "1y" ? "1년" : superTimeHorizon === "3y" ? "3년" : superTimeHorizon === "5y" ? "5년" : "10년"}</span>
-                </div>
-                <div className="futureSelectRow">
-                  <span className="futureSelectLabel">Output Type</span>
+                </label>
+                <label className="futureInlineLabel">
+                  <span>Output Type</span>
                   <select value={superOutputType} onChange={(e) => setSuperOutputType(e.target.value)}>
                     <option value="future_life_answer">Future Life Answer</option>
                     <option value="scenario">Scenario</option>
                     <option value="business_opportunity">Business Opportunity</option>
                     <option value="executive_brief">Executive Brief</option>
                   </select>
-                  <span className="futureValueBadge">{superOutputType === "future_life_answer" ? "Future Life Answer" : superOutputType === "scenario" ? "Scenario" : superOutputType === "business_opportunity" ? "Business Opportunity" : "Executive Brief"}</span>
-                </div>
-                <div className="futureCheckboxRow">
-                  <label className="checkboxLabel">
-                    <input type="checkbox" checked={superIncludeDebate} onChange={(e) => setSuperIncludeDebate(e.target.checked)} />
-                    Debate Knowledge
-                  </label>
-                  <label className="checkboxLabel">
-                    <input type="checkbox" checked={superIncludeOpinions} onChange={(e) => setSuperIncludeOpinions(e.target.checked)} />
-                    Agent Opinions
-                  </label>
-                </div>
+                </label>
+                <label className="checkboxLabel">
+                  <input type="checkbox" checked={superIncludeDebate} onChange={(e) => setSuperIncludeDebate(e.target.checked)} />
+                  Debate Knowledge
+                </label>
+                <label className="checkboxLabel">
+                  <input type="checkbox" checked={superIncludeOpinions} onChange={(e) => setSuperIncludeOpinions(e.target.checked)} />
+                  Agent Opinions
+                </label>
               </div>
               <button className="primary" disabled={superLoading || !superQuestion.trim()}>
                 {superLoading ? "분석 중…" : "Ask Future Life Agent"}
