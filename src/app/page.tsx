@@ -1547,7 +1547,7 @@ export default function Home() {
           </div>
           <form className="questionBox" onSubmit={submitDebate} ref={debateFormRef}>
             <textarea
-              rows={4}
+              rows={1}
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={enterSubmit(debateFormRef)}

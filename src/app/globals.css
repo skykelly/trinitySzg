@@ -827,6 +827,10 @@ select:focus {
 
 .questionBox textarea {
   margin: 0;
+  height: 42px;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.5;
 }
 
 .debateResult {
