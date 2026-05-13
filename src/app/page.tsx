@@ -29,7 +29,7 @@ export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("tech");
   const [selectedStudioAgentId, setSelectedStudioAgentId] = useState("tech");
-  const [debateMode, setDebateMode] = useState<DebateMode>("Feasibility");
+  const [debateMode, setDebateMode] = useState<DebateMode>("Creative Idea");
   const [debateDepth, setDebateDepth] = useState<DebateDepth>("1");
   const [outputType, setOutputType] = useState<OutputType>("Decision Memo");
   const [chatInput, setChatInput] = useState("");
@@ -1498,33 +1498,46 @@ export default function Home() {
               <h2>{question || "Shaping the Future"}</h2>
               <p>3개의 미래 예측 전문가 Agent가 기술 가능성, 고객 가치, 사업 실행성을 동시에 검토합니다.</p>
             </div>
-            <div className="debateMetaGrid">
-              <label>
-                Debate Mode
-                <select value={debateMode} onChange={(event) => setDebateMode(event.target.value as DebateMode)}>
-                  <option value="Feasibility">Feasibility</option>
-                  <option value="Creative Idea">Creative Idea</option>
-                </select>
-              </label>
-              <label>
-                Turns
-                <select value={debateDepth} onChange={(event) => setDebateDepth(event.target.value as DebateDepth)}>
-                  <option value="1">1</option>
-                  <option value="3">3</option>
-                  <option value="5">5</option>
-                </select>
-              </label>
-            </div>
           </div>
-          <form className="questionBox" onSubmit={submitDebate} ref={debateFormRef}>
+          <form className="debateInputBar panel" onSubmit={submitDebate} ref={debateFormRef}>
+            <div className="debateModeGroup">
+              <button
+                type="button"
+                className={`debateModeBtn${debateMode === "Creative Idea" ? " active" : ""}`}
+                onClick={() => setDebateMode("Creative Idea")}
+              >
+                Creative Idea
+              </button>
+              <button
+                type="button"
+                className={`debateModeBtn${debateMode === "Feasibility" ? " active" : ""}`}
+                onClick={() => setDebateMode("Feasibility")}
+              >
+                Feasibility
+              </button>
+            </div>
+            <div className="debateTurnsGroup">
+              <span className="debateTurnsLabel">Turns</span>
+              {(["1", "3", "5"] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`debateTurnBtn${debateDepth === t ? " active" : ""}`}
+                  onClick={() => setDebateDepth(t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
             <textarea
+              className="debateTextarea"
               rows={1}
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               onKeyDown={enterSubmit(debateFormRef)}
               placeholder="예) AI 가전 구독 서비스는 한국에서 실행 가능한 사업인가? — Enter로 제출"
             />
-            <button className="primary" disabled={loading || !question.trim()}>
+            <button className="primary debateSubmitBtn" disabled={loading || !question.trim()}>
               Start Debate
             </button>
           </form>

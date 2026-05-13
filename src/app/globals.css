@@ -545,9 +545,9 @@ select:focus {
 .lensHeader,
 .debateHeader {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(420px, 520px);
-  gap: 24px;
-  padding: 32px;
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding: 24px 28px;
 }
 
 .lensHeader p,
@@ -580,6 +580,106 @@ select:focus {
 
 .debateMetaGrid select {
   min-width: 0;
+}
+
+.debateInputBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+}
+
+.debateModeGroup {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  background: #1e1c19;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.debateModeBtn {
+  font-size: 0.78em;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #7a756e;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.debateModeBtn.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.debateTurnsGroup {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  background: #1e1c19;
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.debateTurnsLabel {
+  font-size: 0.72em;
+  color: #5a5550;
+  padding: 0 6px 0 4px;
+  white-space: nowrap;
+}
+
+.debateTurnBtn {
+  font-size: 0.78em;
+  font-weight: 500;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  color: #7a756e;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.debateTurnBtn.active {
+  background: #34312d;
+  color: #faf9f5;
+  font-weight: 700;
+}
+
+.debateTextarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  height: 38px;
+  overflow: hidden;
+  line-height: 1.5;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: transparent;
+  border: 1px solid #2e2b27;
+  border-radius: 7px;
+}
+
+.debateTextarea:focus {
+  border-color: #4a4540;
+  outline: none;
+}
+
+.debateSubmitBtn {
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 16px;
+  font-size: 0.85em;
+  white-space: nowrap;
 }
 
 .side {
