@@ -1,6 +1,7 @@
 import { createSuperAgentAnswer, getAgent, getSuperAgentAnswer, listAgentOpinions, listSuperAgentAnswers, searchKnowledgeSources } from "./db";
+import { randomUUID } from "node:crypto";
 import { searchDebateInsights } from "./debate-knowledge";
-import { generateText } from "./llm";
+import { generateText, streamText } from "./llm";
 import type { AgentOpinion, DebateInsight, KnowledgeSource } from "./types";
 
 export interface SuperAgentAnswerRequest {
@@ -182,9 +183,7 @@ You may provide directional qualitative judgment, but label it as assumption.
 If debate insights have [미검수 인사이트] label, treat them as preliminary reference, not confirmed facts.`;
 }
 
-export async function answerWithSuperAgent(
-  input: SuperAgentAnswerRequest
-): Promise<SuperAgentAnswerResponse> {
+function buildContext(input: SuperAgentAnswerRequest) {
   const agent = getAgent("future_life_super");
   if (!agent) throw new Error("Future Life Intelligence Agent를 찾을 수 없습니다. DB를 초기화하세요.");
 
@@ -193,17 +192,57 @@ export async function answerWithSuperAgent(
     ? allSources.filter((s) => input.selectedSourceIds!.includes(s.id))
     : allSources.slice(0, 8);
 
-  const insights =
-    input.includeDebateKnowledge !== false
-      ? searchDebateInsights({ question: input.question, domainId: input.domainId, limit: 8, includeDraft: true })
-      : [];
+  const insights = input.includeDebateKnowledge !== false
+    ? searchDebateInsights({ question: input.question, domainId: input.domainId, limit: 8, includeDraft: true })
+    : [];
 
-  const opinions =
-    input.includeAgentOpinions === true
-      ? listAgentOpinions({ query: input.question, domainId: input.domainId, limit: 5 })
-      : [];
+  const opinions = input.includeAgentOpinions === true
+    ? listAgentOpinions({ query: input.question, domainId: input.domainId, limit: 5 })
+    : [];
 
   const prompt = buildSuperAgentPrompt({ input, sources, insights, opinions });
+  const references: SuperAgentAnswerResponse["references"] = {
+    knowledgeSources: sources.map((s) => ({ id: String(s.id), title: s.title, url: s.url })),
+    debateInsights: insights.map((i) => ({ id: i.id, title: i.title, insightType: i.insightType })),
+    agentOpinions: opinions.map((o) => ({ id: o.id, claim: o.claim, agentId: o.agentId }))
+  };
+
+  return { agent, sources, insights, opinions, prompt, references };
+}
+
+export async function streamAnswerWithSuperAgent(
+  input: SuperAgentAnswerRequest,
+  onToken: (token: string) => void | Promise<void>
+): Promise<SuperAgentAnswerResponse> {
+  const { agent, sources, insights, opinions, prompt, references } = buildContext(input);
+  const answerId = randomUUID();
+
+  const answerMarkdown = await streamText({
+    agent: { ...agent, knowledgeSources: sources },
+    messages: [{ role: "user", content: prompt }],
+    onToken
+  });
+
+  createSuperAgentAnswer({
+    id: answerId,
+    question: input.question,
+    domainId: input.domainId,
+    answerMarkdown,
+    referencedArchiveIds: sources.map((s) => String(s.id)),
+    referencedEvidenceIds: [],
+    referencedDebateIds: [...new Set(insights.map((i) => i.debateId))],
+    referencedInsightIds: insights.map((i) => i.id),
+    referencedOpinionIds: opinions.map((o) => o.id),
+    answerType: input.outputType ?? "future_life_answer"
+  });
+
+  return { answerId, answerMarkdown, references };
+}
+
+export async function answerWithSuperAgent(
+  input: SuperAgentAnswerRequest
+): Promise<SuperAgentAnswerResponse> {
+  const { agent, sources, insights, opinions, prompt, references } = buildContext(input);
 
   const answerMarkdown = await generateText({
     agent: { ...agent, knowledgeSources: sources },
@@ -222,15 +261,7 @@ export async function answerWithSuperAgent(
     answerType: input.outputType ?? "future_life_answer"
   });
 
-  return {
-    answerId: saved.id,
-    answerMarkdown,
-    references: {
-      knowledgeSources: sources.map((s) => ({ id: String(s.id), title: s.title, url: s.url })),
-      debateInsights: insights.map((i) => ({ id: i.id, title: i.title, insightType: i.insightType })),
-      agentOpinions: opinions.map((o) => ({ id: o.id, claim: o.claim, agentId: o.agentId }))
-    }
-  };
+  return { answerId: saved.id, answerMarkdown, references };
 }
 
 export function getSuperAgentAnswerWithRefs(id: string) {

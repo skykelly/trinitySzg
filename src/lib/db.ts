@@ -1231,10 +1231,10 @@ function mapSuperAgentAnswer(row: Record<string, unknown>): SuperAgentAnswer {
   };
 }
 
-export function createSuperAgentAnswer(input: NewSuperAgentAnswer): SuperAgentAnswer {
+export function createSuperAgentAnswer(input: NewSuperAgentAnswer & { id?: string }): SuperAgentAnswer {
   const db = getDb();
   const now = new Date().toISOString();
-  const id = randomUUID();
+  const id = input.id ?? randomUUID();
   db.prepare(`
     INSERT INTO super_agent_answers (
       id, question, domain_id, answer_markdown,

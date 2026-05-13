@@ -237,7 +237,13 @@ export default function Home() {
     }
   }
 
-  async function askAgent(agentId: string, message: string, history: ChatMessage[] = [], saveConversation = true) {
+  async function askAgent(
+    agentId: string,
+    message: string,
+    history: ChatMessage[] = [],
+    saveConversation = true,
+    onChunk?: (partial: string) => void
+  ) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -261,6 +267,7 @@ export default function Home() {
       const { done, value } = await reader.read();
       if (done) break;
       answer += decoder.decode(value, { stream: true });
+      onChunk?.(answer);
     }
 
     answer += decoder.decode();
@@ -320,7 +327,7 @@ export default function Home() {
     setPersonaTestOutput("");
     setNotice("");
     try {
-      const { answer } = await askAgent(selectedStudioAgent.id, personaTestInput.trim(), [], false);
+      const { answer } = await askAgent(selectedStudioAgent.id, personaTestInput.trim(), [], false, (partial) => setPersonaTestOutput(partial));
       setPersonaTestOutput(answer);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Persona Test 실패");
@@ -566,12 +573,47 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...base, outputType })
         });
-        const data = (await res.json()) as SuperAnswerResult & { error?: string };
-        if (!res.ok || !data.answerMarkdown) throw new Error(data.error ?? "답변 생성 실패");
-        setAnswerByType(prev => ({ ...prev, [key]: data }));
+        if (!res.ok || !res.body) {
+          const err = await res.json().catch(() => ({ error: "답변 생성 실패" })) as { error?: string };
+          throw new Error(err.error ?? "답변 생성 실패");
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let raw = "";
+        // Show tab immediately on first token
+        setLoadingByType(prev => ({ ...prev, [key]: false }));
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          raw += decoder.decode(value, { stream: true });
+          // Extract metadata marker \x02...\x03 from display text
+          const metaStart = raw.indexOf("\x02");
+          const displayText = metaStart >= 0 ? raw.slice(0, metaStart) : raw;
+          setAnswerByType(prev => ({
+            ...prev,
+            [key]: { answerId: prev[key]?.answerId ?? "", answerMarkdown: displayText, references: prev[key]?.references ?? { knowledgeSources: [], debateInsights: [], agentOpinions: [] } }
+          }));
+        }
+
+        // Parse trailing metadata
+        raw += decoder.decode();
+        const metaStart = raw.indexOf("\x02");
+        const metaEnd = raw.lastIndexOf("\x03");
+        const displayText = metaStart >= 0 ? raw.slice(0, metaStart) : raw;
+        let answerId = "";
+        let references: SuperAnswerResult["references"] = { knowledgeSources: [], debateInsights: [], agentOpinions: [] };
+        if (metaStart >= 0 && metaEnd > metaStart) {
+          try {
+            const meta = JSON.parse(raw.slice(metaStart + 1, metaEnd)) as { answerId?: string; references?: SuperAnswerResult["references"] };
+            answerId = meta.answerId ?? "";
+            references = meta.references ?? references;
+          } catch { /* ignore parse errors */ }
+        }
+        setAnswerByType(prev => ({ ...prev, [key]: { answerId, answerMarkdown: displayText, references } }));
       } catch (error) {
         setNotice(error instanceof Error ? error.message : `${key} 답변 생성 실패`);
-      } finally {
         setLoadingByType(prev => ({ ...prev, [key]: false }));
       }
     };
