@@ -14,14 +14,8 @@ type SuperAnswerResult = {
 };
 
 type Tab = "admin" | "chat" | "debate" | "future" | "knowledge";
-type DebateMode =
-  | "Balanced Debate"
-  | "Critical Review"
-  | "Opportunity Discovery"
-  | "Execution Planning"
-  | "Investment Review"
-  | "C-Level Briefing";
-type DebateDepth = "Quick" | "Standard" | "Deep";
+type DebateMode = "Feasibility" | "Creative Idea";
+type DebateDepth = "1" | "3" | "5";
 type OutputType =
   | "Executive Summary"
   | "Decision Memo"
@@ -35,8 +29,8 @@ export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("tech");
   const [selectedStudioAgentId, setSelectedStudioAgentId] = useState("tech");
-  const [debateMode, setDebateMode] = useState<DebateMode>("Balanced Debate");
-  const [debateDepth, setDebateDepth] = useState<DebateDepth>("Standard");
+  const [debateMode, setDebateMode] = useState<DebateMode>("Feasibility");
+  const [debateDepth, setDebateDepth] = useState<DebateDepth>("1");
   const [outputType, setOutputType] = useState<OutputType>("Decision Memo");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -1508,39 +1502,16 @@ export default function Home() {
               <label>
                 Debate Mode
                 <select value={debateMode} onChange={(event) => setDebateMode(event.target.value as DebateMode)}>
-                  {[
-                    "Balanced",
-                    "Critical",
-                    "Opportunity",
-                    "Execution",
-                    "Investment Review",
-                    "C-Level Briefing"
-                  ].map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
+                  <option value="Feasibility">Feasibility</option>
+                  <option value="Creative Idea">Creative Idea</option>
                 </select>
               </label>
               <label>
-                Depth
+                Turns
                 <select value={debateDepth} onChange={(event) => setDebateDepth(event.target.value as DebateDepth)}>
-                  {["Quick", "Standard", "Deep"].map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Output Type
-                <select value={outputType} onChange={(event) => setOutputType(event.target.value as OutputType)}>
-                  {[
-                    "Summary",
-                    "Decision Memo",
-                    "Action Plan",
-                    "Risk Review",
-                    "Product Concept",
-                    "Strategy Canvas"
-                  ].map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
+                  <option value="1">1</option>
+                  <option value="3">3</option>
+                  <option value="5">5</option>
                 </select>
               </label>
             </div>
