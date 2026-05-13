@@ -29,12 +29,10 @@ export async function POST(request: Request) {
         };
 
         try {
-          const enrichedQuestion = `${question}
-
-Debate Mode: ${body.debateMode ?? "Balanced Debate"}
-Depth: ${body.debateDepth ?? "Standard"}
-Output Type: ${body.outputType ?? "Decision Memo"}`;
-          const { turns, conclusion } = await streamDebate(enrichedQuestion, agents, (token) => send("token", token));
+          const mode = body.debateMode ?? "Feasibility";
+          const turns_hint = body.debateDepth ? `\nTurns: ${body.debateDepth}` : "";
+          const enrichedQuestion = `${question}${turns_hint}`;
+          const { turns, conclusion } = await streamDebate(enrichedQuestion, agents, (token) => send("token", token), mode);
           const debate = createDebate(question, turns, conclusion);
           send("done", debate);
           controller.close();

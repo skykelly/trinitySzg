@@ -18,34 +18,129 @@ export async function runDebate(question: string, agents: Agent[]) {
 export async function streamDebate(
   question: string,
   agents: Agent[],
-  onToken: (token: string) => void | Promise<void>
+  onToken: (token: string) => void | Promise<void>,
+  mode: string = "Feasibility"
 ) {
-  const moderator = {
-    provider: agents[0]?.provider ?? "gemini",
-    model: agents[0]?.model ?? "gemini-2.5-flash-lite",
-    temperature: 0.45,
-    systemPrompt:
-      "당신은 세 AI 페르소나의 토론을 진행하고 종합하는 중립 진행자입니다. 각 페르소나의 관점을 분리해서 충실히 시뮬레이션하되, 최종 결론은 실행 가능하게 정리하세요.",
-    agentType: "moderator_agent",
-    description: "Trinity Debate의 중립 진행자입니다.",
-    tone: "명확하고 실행 중심",
-    debateStyle: "균형형",
-    knowledge: "출력은 사용자가 실시간으로 읽는 Markdown 토론문입니다.",
-    judgmentCriteria: "기술 가능성, 고객 가치, 사업 실행성을 균형 있게 종합합니다.",
-    debateBehavior: "각 페르소나의 충돌 지점을 드러내고 Szg Synthesis로 정렬합니다.",
-    responseTemplate: "Question Framing, Evidence Scan, Opening Views, Cross Challenge, Refine Positions, Score & Trade-off, Consensus Map, Szg Synthesis 순서로 정리합니다.",
-    challengeRules: "근거 수준이 낮은 주장은 가설로 표시하고, 검증 전제를 분리합니다.",
-    evidenceRules: "각 핵심 판단에 Evidence Level과 Missing Evidence를 표시합니다.",
-    scorecard: "기술 가능성, 고객 가치, 사업 실행성, 리스크, MVP 가능성을 비교합니다."
-  } satisfies Parameters<typeof streamText>[0]["agent"];
+  const isCreative = mode === "Creative Idea";
+
+  const moderator = isCreative
+    ? {
+        provider: agents[0]?.provider ?? "gemini",
+        model: agents[0]?.model ?? "gemini-2.5-flash-lite",
+        temperature: 0.85,
+        agentType: "moderator_agent" as const,
+        systemPrompt:
+          "당신은 세 AI 페르소나의 창의적 아이디어 발전 세션을 이끄는 촉진자입니다. 비판보다 확장을 우선하세요. 각 페르소나가 서로의 아이디어를 발전시키고 융합해 처음보다 훨씬 대담하고 새로운 아이디어에 도달하도록 이끄세요. 최종 결론은 가장 흥미롭고 잠재력 있는 아이디어를 구체화하는 방향으로 정리하세요.",
+        description: "Creative Idea 세션의 아이디어 촉진자입니다.",
+        tone: "상상력 자극, 열린 탐색, 시너지 강조",
+        debateStyle: "협력형 아이디어 확장",
+        knowledge: "출력은 사용자가 실시간으로 읽는 Markdown 창의 세션 기록입니다.",
+        judgmentCriteria: "아이디어의 독창성, 고객 욕구와의 공명, 기술·사업의 융합 가능성을 기준으로 합니다.",
+        debateBehavior: "각 페르소나의 아이디어가 서로를 자극하고 발전하도록 연결합니다.",
+        responseTemplate: "Idea Spark, Build & Amplify, Synergy Synthesis 순서로 정리합니다.",
+        challengeRules: "비판 금지. 아이디어에 질문하고 확장하세요.",
+        evidenceRules: "현실 근거보다 상상력과 가능성을 우선합니다.",
+        scorecard: "독창성, 고객 공명도, 융합 가능성, 실현 잠재력을 평가합니다."
+      }
+    : {
+        provider: agents[0]?.provider ?? "gemini",
+        model: agents[0]?.model ?? "gemini-2.5-flash-lite",
+        temperature: 0.45,
+        agentType: "moderator_agent" as const,
+        systemPrompt:
+          "당신은 세 AI 페르소나의 토론을 진행하고 종합하는 중립 진행자입니다. 각 페르소나의 관점을 분리해서 충실히 시뮬레이션하되, 최종 결론은 실행 가능하게 정리하세요.",
+        description: "Trinity Debate의 중립 진행자입니다.",
+        tone: "명확하고 실행 중심",
+        debateStyle: "균형형",
+        knowledge: "출력은 사용자가 실시간으로 읽는 Markdown 토론문입니다.",
+        judgmentCriteria: "기술 가능성, 고객 가치, 사업 실행성을 균형 있게 종합합니다.",
+        debateBehavior: "각 페르소나의 충돌 지점을 드러내고 Szg Synthesis로 정렬합니다.",
+        responseTemplate: "Question Framing, Evidence Scan, Opening Views, Cross Challenge, Refine Positions, Score & Trade-off, Consensus Map, Szg Synthesis 순서로 정리합니다.",
+        challengeRules: "근거 수준이 낮은 주장은 가설로 표시하고, 검증 전제를 분리합니다.",
+        evidenceRules: "각 핵심 판단에 Evidence Level과 Missing Evidence를 표시합니다.",
+        scorecard: "기술 가능성, 고객 가치, 사업 실행성, 리스크, MVP 가능성을 비교합니다."
+      };
+
+  const prompt = isCreative
+    ? buildCreativeDebatePrompt(question, agents)
+    : buildStreamingDebatePrompt(question, agents);
 
   const markdown = await streamText({
     agent: moderator,
-    messages: [{ role: "user", content: buildStreamingDebatePrompt(question, agents) }],
+    messages: [{ role: "user", content: prompt }],
     onToken
   });
 
   return parseMarkdownDebate(markdown, agents);
+}
+
+function buildCreativeDebatePrompt(question: string, agents: Agent[]) {
+  const [a, b, c] = agents;
+  const nameA = a?.name ?? "Agent 1";
+  const nameB = b?.name ?? "Agent 2";
+  const nameC = c?.name ?? "Agent 3";
+
+  return `주제: ${question}
+
+아래 3개의 AI 페르소나가 창의적 아이디어 발전 세션을 진행합니다.
+이 세션은 실현 가능성 검토가 아닙니다. 목표는 서로의 아이디어를 자극하고 확장해 처음보다 훨씬 대담하고 새로운 아이디어를 만드는 것입니다.
+
+[각 에이전트의 역할 재정의]
+
+${nameA} (기술 상상가):
+현재 기술의 한계를 넘어 가능한 미래 기술 또는 융합 기술을 상상하세요.
+현실의 제약은 잠시 잊고, 기술이 무엇을 가능하게 할 수 있는지 대담하게 탐색하세요.
+"만약 이 기술이 완성된다면..." "이 두 기술이 결합하면..." 같은 방식으로 사고하세요.
+
+${nameB} (미래 고객 공감가):
+미래 고객의 욕구, 가치, 생활 방식을 깊이 상상하세요.
+고객이 아직 말하지 못한 욕구, 진정으로 원하는 삶의 변화를 그려보세요.
+인간적이고 감성적인 관점을 강조하세요. 고객이 이 변화를 경험할 때 느끼는 감정을 묘사하세요.
+
+${nameC} (사업 혁신가):
+새로운 비즈니스 모델, 파괴적 혁신을 통해 고객과 기술이 맞물리는 지점을 찾으세요.
+기존 사업 방식의 제약을 넘어, 전혀 새로운 가치 창출 방식을 상상하세요.
+"이 아이디어가 어떤 새로운 시장을 만들 수 있을까?" 관점으로 탐색하세요.
+
+[협력 규칙]
+- 비판 금지. 아이디어의 약점을 지적하는 대신 "이 아이디어에서 더 나아가면..."으로 확장하세요.
+- 다른 에이전트의 아이디어에서 가능성을 발견하고 질문을 던지세요.
+- 세 에이전트의 아이디어가 융합해 처음보다 훨씬 큰 아이디어가 탄생하도록 시너지를 만드세요.
+
+Markdown만 출력하세요. JSON이나 코드블록은 쓰지 마세요.
+반드시 아래 형식을 그대로 사용하세요. AI 이름은 위 페르소나 이름을 그대로 사용하세요.
+
+## Idea Spark — 씨앗 아이디어
+### ${nameA} · 기술 상상
+현재 기술의 한계를 넘는 대담한 기술 가능성을 3~5문장으로 상상하세요.
+
+### ${nameB} · 고객 공감
+미래 고객이 진정으로 원하는 삶의 변화를 3~5문장으로 감성적으로 그려보세요.
+
+### ${nameC} · 사업 혁신
+완전히 새로운 비즈니스 모델이나 시장 창출 가능성을 3~5문장으로 상상하세요.
+
+## Build & Amplify — 확장과 융합
+### ${nameA} · 기술로 확장
+${nameB}와 ${nameC}의 아이디어에서 가능성을 발견하고, 기술적으로 더 대담하게 확장하세요. "이 욕구를 충족하려면 어떤 기술이 필요할까?" 질문에서 출발하세요.
+
+### ${nameB} · 고객으로 확장
+${nameA}와 ${nameC}의 아이디어가 고객의 삶을 어떻게 근본적으로 바꿀지 상상하세요. "이 기술과 사업이 실현된다면 고객의 하루는 어떻게 달라질까?"
+
+### ${nameC} · 사업으로 확장
+${nameA}와 ${nameB}의 아이디어에서 전혀 새로운 사업 기회를 발견하세요. "이 기술과 고객 욕구가 만나는 지점에서 어떤 새로운 시장이 탄생할 수 있을까?"
+
+## Synergy Synthesis — 융합 아이디어
+세 에이전트의 아이디어가 하나로 융합된 가장 대담하고 새로운 아이디어를 제시하세요.
+
+### 융합 아이디어
+세 관점이 합쳐진 하나의 구체적이고 흥미로운 아이디어를 이름과 함께 제안하세요.
+
+### 이 아이디어가 특별한 이유
+왜 이 아이디어가 기존과 다른지, 어떤 새로운 가능성을 열어주는지 설명하세요.
+
+### 다음 상상을 위한 질문
+이 아이디어를 더 발전시키기 위해 세 에이전트가 함께 탐색해야 할 질문 3가지를 제시하세요.`;
 }
 
 function buildStreamingDebatePrompt(question: string, agents: Agent[]) {
