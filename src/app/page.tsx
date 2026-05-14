@@ -428,7 +428,7 @@ export default function Home() {
   async function uploadKnowledgeFile(source: KnowledgeSource, file: File | null) {
     if (!file) return;
 
-    setLoading(true);
+    setKmLoadingState(true);
     setNotice("");
     try {
       const form = new FormData();
@@ -439,13 +439,12 @@ export default function Home() {
       });
       const data = (await res.json()) as { source?: KnowledgeSource; error?: string };
       if (!res.ok || !data.source) throw new Error(data.error ?? "파일 인덱싱 실패");
-      await loadAgents();
+      setAllKmSources(prev => prev.map(s => s.id === source.id ? data.source! : s));
       setNotice(`${file.name} 파일을 인덱싱했습니다.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "파일 인덱싱 실패");
-      await loadAgents();
     } finally {
-      setLoading(false);
+      setKmLoadingState(false);
     }
   }
 
@@ -1348,6 +1347,32 @@ export default function Home() {
                         <span className="insightBadge">{source.sourceType}</span>
                         <span className={`insightBadge status-${source.contentStatus}`}>{source.contentStatus}{source.chunkCount > 0 ? ` · ${source.chunkCount}chunk` : ""}</span>
                         <button type="button" className="kmIndexBtn" onClick={() => ingestKmSource(source, "fetch")} disabled={kmLoadingState}>Index URL</button>
+                        <label className="kmIndexBtn" style={{ cursor: "pointer" }}>
+                          Upload PDF/TXT
+                          <input
+                            type="file"
+                            accept=".pdf,.txt,.md"
+                            style={{ display: "none" }}
+                            onChange={(e) => uploadKnowledgeFile(source, e.target.files?.[0] ?? null)}
+                          />
+                        </label>
+                      </div>
+                      <div className="kmManualRow">
+                        <textarea
+                          className="kmManualTextarea"
+                          rows={2}
+                          placeholder="접근 제한 페이지 원문을 직접 붙여넣기..."
+                          value={kmManualContent[source.id] ?? ""}
+                          onChange={(e) => setKmManualContent(prev => ({ ...prev, [source.id]: e.target.value }))}
+                        />
+                        <button
+                          type="button"
+                          className="kmIndexBtn"
+                          disabled={kmLoadingState || !kmManualContent[source.id]?.trim()}
+                          onClick={() => ingestKmSource(source, "manual")}
+                        >
+                          Index Text
+                        </button>
                       </div>
                     </>
                   )}
