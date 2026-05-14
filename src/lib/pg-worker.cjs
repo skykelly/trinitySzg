@@ -45,6 +45,16 @@ async function main() {
       return;
     }
 
+    // exec_batch: 여러 SQL 구문을 하나의 연결에서 순차 실행 (연결 비용 절약)
+    if (mode === "exec_batch") {
+      const statements = JSON.parse(sql);
+      for (const stmt of statements) {
+        if (stmt.trim()) await pool.query(stmt);
+      }
+      process.stdout.write(JSON.stringify({ rows: [], rowCount: 0, lastInsertRowid: 0 }));
+      return;
+    }
+
     const result = await pool.query(translatePlaceholders(sql), params);
     process.stdout.write(JSON.stringify({
       rows: result.rows,

@@ -9,7 +9,7 @@ type QueryResult = {
 
 const workerPath = join(process.cwd(), "src", "lib", "pg-worker.cjs");
 
-function runQuery(mode: "all" | "get" | "run" | "exec", sql: string, params: unknown[] = []): QueryResult {
+function runQuery(mode: "all" | "get" | "run" | "exec" | "exec_batch", sql: string, params: unknown[] = []): QueryResult {
   const output = execFileSync(process.execPath, [workerPath, JSON.stringify({ mode, sql, params })], {
     cwd: process.cwd(),
     encoding: "utf8",
@@ -25,7 +25,14 @@ export class PostgresSync {
       .split(/;\s*(?:\n|$)/)
       .map((statement) => statement.trim())
       .filter(Boolean);
-    for (const statement of statements) runQuery("exec", statement);
+
+    if (statements.length <= 1) {
+      // 구문이 하나면 기존 방식
+      if (statements[0]) runQuery("exec", statements[0]);
+    } else {
+      // 여러 구문은 하나의 연결로 실행 (pg-worker 프로세스 1개로 처리)
+      runQuery("exec_batch", JSON.stringify(statements));
+    }
   }
 
   prepare(sql: string) {

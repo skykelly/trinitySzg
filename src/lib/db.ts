@@ -38,28 +38,50 @@ function getDb() {
   if (database) return database;
 
   const db = new PostgresSync();
-  db.exec(readFileSync(migrationPath, "utf8"));
 
-  ensureColumn(db, "agents", "persona_type", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "description", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "tone", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "debate_style", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "judgment_criteria", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "debate_behavior", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "response_template", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "challenge_rules", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "evidence_rules", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "scorecard", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "knowledge_sources", "content_status", "TEXT NOT NULL DEFAULT 'summary_only'");
-  ensureColumn(db, "knowledge_sources", "content_error", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "knowledge_sources", "last_ingested_at", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "agents", "agent_type", "TEXT DEFAULT 'specialist_agent'");
-  ensureColumn(db, "knowledge_sources", "external_source_id", "TEXT");
-  ensureColumn(db, "knowledge_sources", "external_project_id", "TEXT");
-  ensureColumn(db, "knowledge_sources", "domain_id", "TEXT");
-  ensureColumn(db, "knowledge_sources", "content_hash", "TEXT");
-  ensureColumn(db, "knowledge_sources", "last_synced_at", "TEXT");
+  // 스키마가 이미 최신 상태인지 확인 — 그렇다면 마이그레이션/ensureColumn 블록 전체 건너뜀
+  // 최초 배포 또는 스키마 변경 후 1회만 전체 실행, 이후엔 isSchemaReady=true로 빠른 경로 진입
+  const schemaReady = isSchemaReady(db);
 
+  if (!schemaReady) {
+    // CREATE TABLE IF NOT EXISTS 9개를 하나의 DB 연결로 실행 (exec_batch)
+    db.exec(readFileSync(migrationPath, "utf8"));
+
+    // 기존 배포 호환: 누락 컬럼 추가 (ADD COLUMN IF NOT EXISTS — 1쿼리씩)
+    ensureColumn(db, "agents", "persona_type", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "description", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "tone", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "debate_style", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "judgment_criteria", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "debate_behavior", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "response_template", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "challenge_rules", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "evidence_rules", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "scorecard", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "knowledge_sources", "content_status", "TEXT NOT NULL DEFAULT 'summary_only'");
+    ensureColumn(db, "knowledge_sources", "content_error", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "knowledge_sources", "last_ingested_at", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "agents", "agent_type", "TEXT DEFAULT 'specialist_agent'");
+    ensureColumn(db, "knowledge_sources", "external_source_id", "TEXT");
+    ensureColumn(db, "knowledge_sources", "external_project_id", "TEXT");
+    ensureColumn(db, "knowledge_sources", "domain_id", "TEXT");
+    ensureColumn(db, "knowledge_sources", "content_hash", "TEXT");
+    ensureColumn(db, "knowledge_sources", "last_synced_at", "TEXT");
+    ensureColumn(db, "super_agent_answers", "scenario_markdown", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "super_agent_answers", "business_markdown", "TEXT NOT NULL DEFAULT ''");
+    ensureColumn(db, "super_agent_answers", "executive_markdown", "TEXT NOT NULL DEFAULT ''");
+
+    // 구버전 테이블/컬럼 정리
+    try {
+      db.exec("DROP TABLE IF EXISTS agent_opinions");
+      db.exec("DROP TABLE IF EXISTS domain_categories");
+      for (const col of ["domain_id", "referenced_archive_ids", "referenced_evidence_ids", "referenced_debate_ids", "referenced_insight_ids", "referenced_opinion_ids", "answer_markdown", "answer_type"]) {
+        dropColumnIfExists(db, "super_agent_answers", col);
+      }
+    } catch { /* cleanup is best-effort */ }
+  }
+
+  // 에이전트 시드 (스키마 준비 여부와 무관하게 실행)
   const count = db.prepare("SELECT COUNT(*) AS count FROM agents").get() as { count: number | string };
   if (Number(count.count) === 0) {
     const insert = db.prepare(`
@@ -73,25 +95,10 @@ function getDb() {
 
     for (const agent of defaultAgents) {
       insert.run(
-        agent.id,
-        agent.name,
-        agent.role,
-        agent.personaType,
-        agent.description,
-        agent.tone,
-        agent.debateStyle,
-        agent.provider,
-        agent.model,
-        agent.temperature,
-        agent.systemPrompt,
-        agent.knowledge,
-        agent.judgmentCriteria,
-        agent.debateBehavior,
-        agent.responseTemplate,
-        agent.challengeRules,
-        agent.evidenceRules,
-        agent.scorecard,
-        agent.updatedAt
+        agent.id, agent.name, agent.role, agent.personaType, agent.description,
+        agent.tone, agent.debateStyle, agent.provider, agent.model, agent.temperature,
+        agent.systemPrompt, agent.knowledge, agent.judgmentCriteria, agent.debateBehavior,
+        agent.responseTemplate, agent.challengeRules, agent.evidenceRules, agent.scorecard, agent.updatedAt
       );
     }
   } else {
@@ -101,20 +108,6 @@ function getDb() {
 
   seedKnowledgeSources(db);
   seedMigrationData(db);
-
-  // Add new columns for combined answer storage
-  ensureColumn(db, "super_agent_answers", "scenario_markdown", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "super_agent_answers", "business_markdown", "TEXT NOT NULL DEFAULT ''");
-  ensureColumn(db, "super_agent_answers", "executive_markdown", "TEXT NOT NULL DEFAULT ''");
-
-  // Drop deprecated tables and columns — wrapped in try/catch so init never fails due to cleanup
-  try {
-    db.exec("DROP TABLE IF EXISTS agent_opinions");
-    db.exec("DROP TABLE IF EXISTS domain_categories");
-    for (const col of ["domain_id", "referenced_archive_ids", "referenced_evidence_ids", "referenced_debate_ids", "referenced_insight_ids", "referenced_opinion_ids", "answer_markdown", "answer_type"]) {
-      dropColumnIfExists(db, "super_agent_answers", col);
-    }
-  } catch { /* cleanup is best-effort; proceed even if it fails */ }
 
   database = db;
   return database;
@@ -148,19 +141,29 @@ function seedMissingAgents(db: PostgresSync) {
 }
 
 function ensureColumn(db: PostgresSync, table: string, column: string, definition: string) {
-  const existing = db
-    .prepare("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?")
-    .get(table, column);
-  if (existing) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  // ADD COLUMN IF NOT EXISTS: PostgreSQL 9.3+ — 체크 쿼리 없이 1회 실행
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${definition}`);
+  } catch { /* 이미 존재하거나 제약 조건 충돌 시 무시 */ }
 }
 
 function dropColumnIfExists(db: PostgresSync, table: string, column: string) {
-  const existing = db
-    .prepare("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?")
-    .get(table, column);
-  if (!existing) return;
-  db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  // DROP COLUMN IF EXISTS: PostgreSQL 9.0+ — 체크 쿼리 없이 1회 실행
+  try {
+    db.exec(`ALTER TABLE ${table} DROP COLUMN IF EXISTS ${column}`);
+  } catch { /* 컬럼 없거나 의존성 있으면 무시 */ }
+}
+
+// scenario_markdown 컬럼 존재 여부로 최신 스키마 적용 여부 확인
+function isSchemaReady(db: PostgresSync): boolean {
+  try {
+    const row = db
+      .prepare("SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='super_agent_answers' AND column_name='scenario_markdown' LIMIT 1")
+      .get();
+    return !!row;
+  } catch {
+    return false;
+  }
 }
 
 function seedMissingAgentFields(db: PostgresSync) {
