@@ -5,7 +5,11 @@ import type { Agent } from "@/lib/types";
 export const runtime = "nodejs";
 
 export async function GET() {
-  return NextResponse.json({ agents: getAgents() });
+  try {
+    return NextResponse.json({ agents: getAgents() });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "알 수 없는 오류" }, { status: 500 });
+  }
 }
 
 export async function PUT(request: Request) {
