@@ -9,7 +9,6 @@ type SuperAnswerResult = {
   references: {
     knowledgeSources: Array<{ id: string; title: string; url: string }>;
     debateInsights: Array<{ id: string; title: string; insightType: string }>;
-    agentOpinions: Array<{ id: string; claim: string; agentId: string }>;
   };
 };
 
@@ -60,18 +59,9 @@ export default function Home() {
   const [superQuestion, setSuperQuestion] = useState("");
   const [superTimeHorizon, setSuperTimeHorizon] = useState<"3y" | "5y" | "10y">("5y");
   const [superIncludeDebate, setSuperIncludeDebate] = useState(true);
-  const [superIncludeOpinions, setSuperIncludeOpinions] = useState(false);
   const [answerByType, setAnswerByType] = useState<{ scenario: SuperAnswerResult | null; business: SuperAnswerResult | null; executive: SuperAnswerResult | null }>({ scenario: null, business: null, executive: null });
   const [loadingByType, setLoadingByType] = useState({ scenario: false, business: false, executive: false });
   const [resultTab, setResultTab] = useState<"scenario" | "business" | "executive">("scenario");
-
-  // Save as Agent Opinion
-  const [opinionFormIndex, setOpinionFormIndex] = useState<number | null>(null);
-  const [opinionClaim, setOpinionClaim] = useState("");
-  const [opinionRationale, setOpinionRationale] = useState("");
-  const [opinionConfidence, setOpinionConfidence] = useState<"high" | "medium" | "low">("medium");
-  const [opinionTags, setOpinionTags] = useState("");
-  const [opinionDomainId, setOpinionDomainId] = useState("");
   const [recents, setRecents] = useState<RecentItem[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -154,11 +144,11 @@ export default function Home() {
   async function loadRecents() {
     try {
       const res = await fetch("/api/recents");
-      const data = (await res.json()) as { recents?: RecentItem[]; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "최근 항목을 불러오지 못했습니다.");
+      if (!res.ok) return;
+      const data = (await res.json()) as { recents?: RecentItem[] };
       setRecents(data.recents ?? []);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "최근 항목을 불러오지 못했습니다.");
+    } catch {
+      // 백그라운드 갱신 실패는 조용히 무시 (사이드바 새로고침 버튼으로 재시도 가능)
     }
   }
 
@@ -497,8 +487,8 @@ export default function Home() {
       if (!finalDebate) throw new Error("토론 결과를 저장하지 못했습니다.");
       setDebate(finalDebate);
       setDebateDraft("");
-      await loadRecents();
       setNotice("토론이 완료되었습니다.");
+      await loadRecents();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "토론 실패");
     } finally {
@@ -562,16 +552,15 @@ export default function Home() {
     const base = {
       question: superQuestion.trim(),
       timeHorizon: superTimeHorizon,
-      includeDebateKnowledge: superIncludeDebate,
-      includeAgentOpinions: superIncludeOpinions
+      includeDebateKnowledge: superIncludeDebate
     };
 
-    const callOne = async (outputType: string, key: "scenario" | "business" | "executive") => {
+    const callOne = async (outputType: string, key: "scenario" | "business" | "executive", skipSave = false) => {
       try {
         const res = await fetch("/api/super-agent/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...base, outputType })
+          body: JSON.stringify({ ...base, outputType, skipSave })
         });
         if (!res.ok || !res.body) {
           const err = await res.json().catch(() => ({ error: "답변 생성 실패" })) as { error?: string };
@@ -581,19 +570,22 @@ export default function Home() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let raw = "";
-        // Show tab immediately on first token
-        setLoadingByType(prev => ({ ...prev, [key]: false }));
+        let firstToken = true;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           raw += decoder.decode(value, { stream: true });
-          // Extract metadata marker \x02...\x03 from display text
+          // Remove metadata marker before displaying
           const metaStart = raw.indexOf("\x02");
           const displayText = metaStart >= 0 ? raw.slice(0, metaStart) : raw;
+          if (firstToken && displayText.length > 0) {
+            setLoadingByType(prev => ({ ...prev, [key]: false }));
+            firstToken = false;
+          }
           setAnswerByType(prev => ({
             ...prev,
-            [key]: { answerId: prev[key]?.answerId ?? "", answerMarkdown: displayText, references: prev[key]?.references ?? { knowledgeSources: [], debateInsights: [], agentOpinions: [] } }
+            [key]: { answerId: prev[key]?.answerId ?? "", answerMarkdown: displayText, references: prev[key]?.references ?? { knowledgeSources: [], debateInsights: [] } }
           }));
         }
 
@@ -603,7 +595,7 @@ export default function Home() {
         const metaEnd = raw.lastIndexOf("\x03");
         const displayText = metaStart >= 0 ? raw.slice(0, metaStart) : raw;
         let answerId = "";
-        let references: SuperAnswerResult["references"] = { knowledgeSources: [], debateInsights: [], agentOpinions: [] };
+        let references: SuperAnswerResult["references"] = { knowledgeSources: [], debateInsights: [] };
         if (metaStart >= 0 && metaEnd > metaStart) {
           try {
             const meta = JSON.parse(raw.slice(metaStart + 1, metaEnd)) as { answerId?: string; references?: SuperAnswerResult["references"] };
@@ -611,6 +603,7 @@ export default function Home() {
             references = meta.references ?? references;
           } catch { /* ignore parse errors */ }
         }
+        setLoadingByType(prev => ({ ...prev, [key]: false }));
         setAnswerByType(prev => ({ ...prev, [key]: { answerId, answerMarkdown: displayText, references } }));
       } catch (error) {
         setNotice(error instanceof Error ? error.message : `${key} 답변 생성 실패`);
@@ -618,46 +611,15 @@ export default function Home() {
       }
     };
 
-    // 3개 동시 병렬 호출 — Future Scenario가 먼저 도착하면 바로 표시됨
-    callOne("scenario", "scenario");
-    callOne("business_opportunity", "business");
-    callOne("executive_brief", "executive");
+    // scenario만 DB 저장, business/executive는 skipSave=true
+    // 모두 완료되면 history 갱신
+    Promise.allSettled([
+      callOne("scenario", "scenario"),
+      callOne("business_opportunity", "business", true),
+      callOne("executive_brief", "executive", true)
+    ]).then(() => loadRecents());
   }
 
-  function openOpinionForm(index: number, content: string) {
-    setOpinionFormIndex(index);
-    setOpinionClaim(content.slice(0, 400));
-    setOpinionRationale("");
-    setOpinionConfidence("medium");
-    setOpinionTags("");
-    setOpinionDomainId("");
-  }
-
-  async function saveAgentOpinion(event: FormEvent) {
-    event.preventDefault();
-    if (!opinionClaim.trim()) return;
-    try {
-      const res = await fetch("/api/agent-opinions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agentId: selectedAgentId,
-          question: latestUserQuestion(chatMessages),
-          claim: opinionClaim.trim(),
-          rationale: opinionRationale.trim() || undefined,
-          confidence: opinionConfidence,
-          tags: opinionTags,
-          domainId: opinionDomainId.trim() || undefined
-        })
-      });
-      const data = (await res.json()) as { opinion?: unknown; error?: string };
-      if (!res.ok || !data.opinion) throw new Error(data.error ?? "저장 실패");
-      setOpinionFormIndex(null);
-      setNotice("Agent Opinion을 저장했습니다.");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "저장 실패");
-    }
-  }
 
   async function loadAllKmSources() {
     setKmLoadingState(true);
@@ -831,7 +793,7 @@ export default function Home() {
         setTab("future");
         setSuperQuestion(item.question);
         setAnswerByType({
-          scenario: { answerId: data.answer.id, answerMarkdown: data.answer.answerMarkdown, references: { knowledgeSources: [], debateInsights: [], agentOpinions: [] } },
+          scenario: { answerId: data.answer.id, answerMarkdown: data.answer.answerMarkdown, references: { knowledgeSources: [], debateInsights: [] } },
           business: null,
           executive: null
         });
@@ -1196,47 +1158,6 @@ export default function Home() {
                 chatMessages.map((message, index) => (
                   <div className={`bubble ${message.role}`} key={`${message.role}-${index}`}>
                     {message.role === "assistant" ? <Markdownish text={message.content || "…"} /> : message.content}
-                    {message.role === "assistant" ? (
-                      <div className="bubbleActions">
-                        <button type="button" onClick={() => openOpinionForm(index, message.content)}>
-                          Save as Agent Opinion
-                        </button>
-                      </div>
-                    ) : null}
-                    {opinionFormIndex === index ? (
-                      <form className="opinionForm" onSubmit={saveAgentOpinion}>
-                        <label>
-                          Domain ID
-                          <input value={opinionDomainId} onChange={(e) => setOpinionDomainId(e.target.value)} placeholder="ai_home" />
-                        </label>
-                        <label>
-                          Claim
-                          <textarea rows={3} value={opinionClaim} onChange={(e) => setOpinionClaim(e.target.value)} />
-                        </label>
-                        <label>
-                          Rationale
-                          <textarea rows={2} value={opinionRationale} onChange={(e) => setOpinionRationale(e.target.value)} placeholder="근거 (선택)" />
-                        </label>
-                        <div className="twoCols">
-                          <label>
-                            Confidence
-                            <select value={opinionConfidence} onChange={(e) => setOpinionConfidence(e.target.value as "high" | "medium" | "low")}>
-                              <option value="high">high</option>
-                              <option value="medium">medium</option>
-                              <option value="low">low</option>
-                            </select>
-                          </label>
-                          <label>
-                            Tags
-                            <input value={opinionTags} onChange={(e) => setOpinionTags(e.target.value)} placeholder="AI, 쇼핑, UX" />
-                          </label>
-                        </div>
-                        <div className="opinionFormActions">
-                          <button className="primary" type="submit" disabled={!opinionClaim.trim()}>Save Opinion</button>
-                          <button type="button" onClick={() => setOpinionFormIndex(null)}>취소</button>
-                        </div>
-                      </form>
-                    ) : null}
                   </div>
                 ))
               )}
@@ -1446,10 +1367,6 @@ export default function Home() {
                   <input type="checkbox" checked={superIncludeDebate} onChange={(e) => setSuperIncludeDebate(e.target.checked)} />
                   Debate Knowledge
                 </label>
-                <label className="checkboxLabel">
-                  <input type="checkbox" checked={superIncludeOpinions} onChange={(e) => setSuperIncludeOpinions(e.target.checked)} />
-                  Agent Opinions
-                </label>
               </div>
             </form>
 
@@ -1500,8 +1417,8 @@ export default function Home() {
                 {(() => {
                   const active = answerByType[resultTab];
                   if (!active) return null;
-                  const { knowledgeSources, debateInsights, agentOpinions } = active.references;
-                  if (!knowledgeSources.length && !debateInsights.length && !agentOpinions.length) return null;
+                  const { knowledgeSources, debateInsights } = active.references;
+                  if (!knowledgeSources.length && !debateInsights.length) return null;
                   return (
                     <details className="panel referencesPanel">
                       <summary><strong>참고한 지식</strong></summary>
@@ -1515,12 +1432,6 @@ export default function Home() {
                         <div className="refGroup">
                           <p className="refGroupTitle">Debate Insights</p>
                           {debateInsights.map(i => <span key={i.id} className="refItem"><span className="insightType">{i.insightType}</span> {i.title}</span>)}
-                        </div>
-                      )}
-                      {agentOpinions.length > 0 && (
-                        <div className="refGroup">
-                          <p className="refGroupTitle">Agent Opinions</p>
-                          {agentOpinions.map(o => <span key={o.id} className="refItem"><span className="insightBadge">{o.agentId}</span> {o.claim}</span>)}
                         </div>
                       )}
                     </details>

@@ -1,14 +1,5 @@
 export type Provider = "gemini" | "github";
 
-export interface DomainCategory {
-  id: string;
-  name: string;
-  sub: string;
-  type: string;
-  insight: string;
-  createdAt: string;
-}
-
 export type AgentType = "specialist_agent" | "super_agent" | "moderator_agent";
 
 export type DebateInsightStatus = "draft" | "approved" | "deprecated" | "rejected";
@@ -163,36 +154,10 @@ export interface DebateInsight {
 
 export type NewDebateInsight = Omit<DebateInsight, "id" | "createdAt" | "updatedAt">;
 
-export interface AgentOpinion {
-  id: string;
-  conversationId?: string;
-  messageId?: string;
-  agentId: string;
-  domainId?: string;
-  question: string;
-  claim: string;
-  rationale?: string;
-  evidenceRefs: string[];
-  confidence: "high" | "medium" | "low";
-  scoreJson?: Record<string, unknown>;
-  tags: string[];
-  status: DebateInsightStatus;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type NewAgentOpinion = Omit<AgentOpinion, "id" | "createdAt" | "updatedAt">;
-
 export interface SuperAgentAnswer {
   id: string;
   question: string;
-  domainId?: string;
   answerMarkdown: string;
-  referencedArchiveIds: string[];
-  referencedEvidenceIds: string[];
-  referencedDebateIds: string[];
-  referencedInsightIds: string[];
-  referencedOpinionIds: string[];
   answerType: string;
   createdAt: string;
   updatedAt: string;

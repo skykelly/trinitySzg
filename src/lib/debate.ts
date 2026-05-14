@@ -364,11 +364,14 @@ function extractJson(response: string) {
 }
 
 function parseMarkdownDebate(markdown: string, agents: Agent[]) {
-  const conclusionMarker = markdown.match(/^##\s+최종 결론\s*$/m);
+  // Match conclusion section for both Feasibility (Szg Synthesis / 최종 결론) and Creative Idea (Synergy Synthesis)
+  const conclusionMarker = markdown.match(/^##\s+(최종 결론|Szg Synthesis|Trinity Synthesis|Synergy Synthesis)[^\n]*/m);
   const debateText = conclusionMarker ? markdown.slice(0, conclusionMarker.index).trim() : markdown.trim();
-  const conclusion = conclusionMarker ? markdown.slice(conclusionMarker.index).trim() : "## 최종 결론\n결론을 파싱하지 못했습니다.";
+  const conclusion = conclusionMarker ? markdown.slice(conclusionMarker.index).trim() : markdown.trim();
+
   const turns: DebateTurn[] = [];
-  const headingPattern = /^###\s+(.+?)\s+·\s+(1차 주장|상호 반박|최종 입장)\s*$/gm;
+  // Match any ### AgentName · Label heading (not limited to specific round labels)
+  const headingPattern = /^###\s+(.+?)\s+·\s+(.+?)\s*$/gm;
   const headings = [...debateText.matchAll(headingPattern)];
 
   for (let index = 0; index < headings.length; index += 1) {
@@ -398,8 +401,12 @@ function parseMarkdownDebate(markdown: string, agents: Agent[]) {
 }
 
 function labelToRound(label: string): DebateTurn["round"] {
+  // Feasibility mode labels
   if (label === "상호 반박") return "rebuttal";
   if (label === "최종 입장") return "final";
+  // Creative Idea mode labels: '기술로 보완', '고객으로 보완', '사업으로 보완'
+  if (label.includes("보완")) return "rebuttal";
+  // Default: '1차 주장', '기술 탐색', '고객 공감', '사업 설계', etc.
   return "opening";
 }
 

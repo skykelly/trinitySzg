@@ -6,12 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "migrate:db": "node scripts/migrate-sqlite-to-supabase.mjs",
     "lint": "next lint"
   },
   "dependencies": {
     "next": "^16.2.6",
     "pdf-parse": "^2.4.5",
-    "railway": "^2.0.17",
+    "pg": "^8.20.0",
     "react": "19.2.1",
     "react-dom": "19.2.1"
   },
@@ -20,6 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "24.10.1",
+    "@types/pg": "^8.20.0",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
     "typescript": "5.9.3"

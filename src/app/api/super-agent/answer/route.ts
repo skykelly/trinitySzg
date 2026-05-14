@@ -5,9 +5,9 @@ import type { SuperAgentAnswerRequest } from "@/lib/super-agent";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  let body: Partial<SuperAgentAnswerRequest>;
+  let body: Partial<SuperAgentAnswerRequest> & { skipSave?: boolean };
   try {
-    body = (await request.json()) as Partial<SuperAgentAnswerRequest>;
+    body = (await request.json()) as Partial<SuperAgentAnswerRequest> & { skipSave?: boolean };
   } catch {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
@@ -16,16 +16,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "question이 필요합니다." }, { status: 400 });
   }
 
+  const skipSave = body.skipSave === true;
+
   const input: SuperAgentAnswerRequest = {
     question: body.question.trim(),
-    domainId: body.domainId,
     timeHorizon: body.timeHorizon,
-    customerSegment: body.customerSegment,
     outputType: body.outputType,
-    includeDebateKnowledge: body.includeDebateKnowledge,
-    includeAgentOpinions: body.includeAgentOpinions,
-    selectedSourceIds: body.selectedSourceIds,
-    context: body.context
+    includeDebateKnowledge: body.includeDebateKnowledge
   };
 
   const encoder = new TextEncoder();
@@ -34,8 +31,7 @@ export async function POST(request: Request) {
       try {
         const result = await streamAnswerWithSuperAgent(input, (token) => {
           controller.enqueue(encoder.encode(token));
-        });
-        // Append metadata marker at the end of the stream
+        }, skipSave);
         const meta = JSON.stringify({ answerId: result.answerId, references: result.references });
         controller.enqueue(encoder.encode(`\x02${meta}\x03`));
         controller.close();

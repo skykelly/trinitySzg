@@ -1,11 +1,10 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
+import { PostgresSync } from "./pg-sync";
 import { defaultAgents } from "./default-agents";
 import type {
   Agent,
-  AgentOpinion,
   AgentType,
   ChatMessage,
   ConversationResult,
@@ -15,102 +14,31 @@ import type {
   DebateResult,
   DebateSummary,
   DebateTurn,
-  DomainCategory,
   KnowledgeChunk,
   KnowledgeSource,
-  NewAgentOpinion,
   NewDebateInsight,
   NewSuperAgentAnswer,
   RecentItem,
   SuperAgentAnswer
 } from "./types";
 
-const dbPath = join(process.cwd(), "data", "db-data", "app.db");
-mkdirSync(dirname(dbPath), { recursive: true });
+const migrationPath = join(process.cwd(), "supabase", "migrations", "202605130001_initial_schema.sql");
 
-let database: DatabaseSync | null = null;
+let database: PostgresSync | null = null;
+
+function resolveDataFile(name: string) {
+  const candidates = [
+    join(process.cwd(), "data", name),
+    join(process.cwd(), "app", "data", name)
+  ];
+  return candidates.find((path) => existsSync(path));
+}
 
 function getDb() {
   if (database) return database;
 
-  const db = new DatabaseSync(dbPath);
-  db.exec("PRAGMA busy_timeout = 5000;");
-  const tables = [
-    `CREATE TABLE IF NOT EXISTS agents (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL,
-      persona_type TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
-      tone TEXT NOT NULL DEFAULT '', debate_style TEXT NOT NULL DEFAULT '',
-      provider TEXT NOT NULL, model TEXT NOT NULL, temperature REAL NOT NULL,
-      system_prompt TEXT NOT NULL, knowledge TEXT NOT NULL,
-      judgment_criteria TEXT NOT NULL DEFAULT '', debate_behavior TEXT NOT NULL DEFAULT '',
-      response_template TEXT NOT NULL DEFAULT '', challenge_rules TEXT NOT NULL DEFAULT '',
-      evidence_rules TEXT NOT NULL DEFAULT '', scorecard TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS conversations (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
-      title TEXT NOT NULL, created_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL,
-      role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS debates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT NOT NULL,
-      conclusion TEXT NOT NULL, created_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS debate_turns (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, debate_id INTEGER NOT NULL,
-      agent_id TEXT NOT NULL, agent_name TEXT NOT NULL, round TEXT NOT NULL,
-      content TEXT NOT NULL, created_at TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS knowledge_sources (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, agent_id TEXT NOT NULL,
-      title TEXT NOT NULL, url TEXT NOT NULL, source_type TEXT NOT NULL,
-      reliability TEXT NOT NULL, priority INTEGER NOT NULL, summary TEXT NOT NULL,
-      tags TEXT NOT NULL DEFAULT '[]', content_status TEXT NOT NULL DEFAULT 'summary_only',
-      content_error TEXT NOT NULL DEFAULT '', last_ingested_at TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(agent_id, url)
-    )`,
-    `CREATE TABLE IF NOT EXISTS knowledge_chunks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, source_id INTEGER NOT NULL,
-      chunk_index INTEGER NOT NULL, content TEXT NOT NULL,
-      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(source_id, chunk_index)
-    )`,
-    `CREATE TABLE IF NOT EXISTS domain_categories (
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, sub TEXT NOT NULL DEFAULT '',
-      type TEXT NOT NULL DEFAULT '', insight TEXT NOT NULL DEFAULT '',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS debate_insights (
-      id TEXT PRIMARY KEY, debate_id TEXT NOT NULL, domain_id TEXT,
-      insight_type TEXT NOT NULL, agent_id TEXT, title TEXT NOT NULL, content TEXT NOT NULL,
-      confidence TEXT DEFAULT 'medium', evidence_level TEXT DEFAULT 'medium',
-      tags TEXT DEFAULT '[]', status TEXT DEFAULT 'draft',
-      valid_until TEXT, reviewed_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS agent_opinions (
-      id TEXT PRIMARY KEY, conversation_id TEXT, message_id TEXT,
-      agent_id TEXT NOT NULL, domain_id TEXT, question TEXT NOT NULL,
-      claim TEXT NOT NULL, rationale TEXT, evidence_refs TEXT DEFAULT '[]',
-      confidence TEXT DEFAULT 'medium', score_json TEXT, tags TEXT DEFAULT '[]',
-      status TEXT DEFAULT 'draft',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )`,
-    `CREATE TABLE IF NOT EXISTS super_agent_answers (
-      id TEXT PRIMARY KEY, question TEXT NOT NULL, domain_id TEXT,
-      answer_markdown TEXT NOT NULL,
-      referenced_archive_ids TEXT DEFAULT '[]', referenced_evidence_ids TEXT DEFAULT '[]',
-      referenced_debate_ids TEXT DEFAULT '[]', referenced_insight_ids TEXT DEFAULT '[]',
-      referenced_opinion_ids TEXT DEFAULT '[]', answer_type TEXT DEFAULT 'future_life_answer',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    )`
-  ];
-
-  for (const sql of tables) {
-    db.exec(sql);
-  }
+  const db = new PostgresSync();
+  db.exec(readFileSync(migrationPath, "utf8"));
 
   ensureColumn(db, "agents", "persona_type", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "agents", "description", "TEXT NOT NULL DEFAULT ''");
@@ -132,8 +60,8 @@ function getDb() {
   ensureColumn(db, "knowledge_sources", "content_hash", "TEXT");
   ensureColumn(db, "knowledge_sources", "last_synced_at", "TEXT");
 
-  const count = db.prepare("SELECT COUNT(*) AS count FROM agents").get() as { count: number };
-  if (count.count === 0) {
+  const count = db.prepare("SELECT COUNT(*) AS count FROM agents").get() as { count: number | string };
+  if (Number(count.count) === 0) {
     const insert = db.prepare(`
       INSERT INTO agents (
         id, name, role, persona_type, description, tone, debate_style,
@@ -174,11 +102,20 @@ function getDb() {
   seedKnowledgeSources(db);
   seedMigrationData(db);
 
+  // Drop deprecated tables and columns — wrapped in try/catch so init never fails due to cleanup
+  try {
+    db.exec("DROP TABLE IF EXISTS agent_opinions");
+    db.exec("DROP TABLE IF EXISTS domain_categories");
+    for (const col of ["domain_id", "referenced_archive_ids", "referenced_evidence_ids", "referenced_debate_ids", "referenced_insight_ids", "referenced_opinion_ids"]) {
+      dropColumnIfExists(db, "super_agent_answers", col);
+    }
+  } catch { /* cleanup is best-effort; proceed even if it fails */ }
+
   database = db;
   return database;
 }
 
-function seedMissingAgents(db: DatabaseSync) {
+function seedMissingAgents(db: PostgresSync) {
   const existing = new Set(
     (db.prepare("SELECT id FROM agents").all() as { id: string }[]).map((r) => String(r.id))
   );
@@ -205,13 +142,23 @@ function seedMissingAgents(db: DatabaseSync) {
   }
 }
 
-function ensureColumn(db: DatabaseSync, table: string, column: string, definition: string) {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<Record<string, unknown>>;
-  if (columns.some((item) => item.name === column)) return;
+function ensureColumn(db: PostgresSync, table: string, column: string, definition: string) {
+  const existing = db
+    .prepare("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?")
+    .get(table, column);
+  if (existing) return;
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
-function seedMissingAgentFields(db: DatabaseSync) {
+function dropColumnIfExists(db: PostgresSync, table: string, column: string) {
+  const existing = db
+    .prepare("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?")
+    .get(table, column);
+  if (!existing) return;
+  db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+}
+
+function seedMissingAgentFields(db: PostgresSync) {
   // Force-update all core prompt/knowledge fields for specialist agents.
   // name is preserved so users who renamed agents in Persona Studio keep their changes.
   const forceUpdate = db.prepare(`
@@ -306,12 +253,12 @@ function mapAgentId(agentId: string) {
   return agentId;
 }
 
-function seedKnowledgeSources(db: DatabaseSync) {
-  const count = db.prepare("SELECT COUNT(*) AS count FROM knowledge_sources").get() as { count: number };
-  if (count.count > 0) return;
+function seedKnowledgeSources(db: PostgresSync) {
+  const count = db.prepare("SELECT COUNT(*) AS count FROM knowledge_sources").get() as { count: number | string };
+  if (Number(count.count) > 0) return;
 
-  const seedPath = join(process.cwd(), "data", "knowledge_sources.json");
-  if (!existsSync(seedPath)) return;
+  const seedPath = resolveDataFile("knowledge_sources.json");
+  if (!seedPath) return;
 
   const raw = readFileSync(seedPath, "utf8");
   const sources = JSON.parse(raw) as Array<{
@@ -325,10 +272,11 @@ function seedKnowledgeSources(db: DatabaseSync) {
     tags?: string[];
   }>;
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO knowledge_sources (
+    INSERT INTO knowledge_sources (
       agent_id, title, url, source_type, reliability, priority, summary, tags, created_at, updated_at
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (agent_id, url) DO NOTHING
   `);
   const now = new Date().toISOString();
 
@@ -411,7 +359,7 @@ function mapKnowledgeChunk(row: Record<string, unknown>): KnowledgeChunk {
 export function getAgents(): Agent[] {
   const db = getDb();
   return db
-    .prepare("SELECT * FROM agents ORDER BY rowid")
+    .prepare("SELECT * FROM agents ORDER BY id")
     .all()
     .map((row) => enrichAgentWithKnowledgeSources(mapAgent(row as Record<string, unknown>)));
 }
@@ -483,7 +431,7 @@ export function updateAgents(agents: Agent[]): Agent[] {
 export function createConversation(agentId: string, title: string): number {
   const db = getDb();
   const result = db
-    .prepare("INSERT INTO conversations (agent_id, title, created_at) VALUES (?, ?, ?)")
+    .prepare("INSERT INTO conversations (agent_id, title, created_at) VALUES (?, ?, ?) RETURNING id")
     .run(agentId, title, new Date().toISOString());
   return Number(result.lastInsertRowid);
 }
@@ -513,7 +461,7 @@ export function listConversations(limit = 30): ConversationSummary[] {
       FROM conversations
       LEFT JOIN agents ON agents.id = conversations.agent_id
       LEFT JOIN messages ON messages.conversation_id = conversations.id
-      GROUP BY conversations.id
+      GROUP BY conversations.id, agents.name
       ORDER BY conversations.created_at DESC
       LIMIT ?
     `
@@ -563,7 +511,7 @@ export function createDebate(question: string, turns: DebateTurn[], conclusion: 
   const db = getDb();
   const createdAt = new Date().toISOString();
   const result = db
-    .prepare("INSERT INTO debates (question, conclusion, created_at) VALUES (?, ?, ?)")
+    .prepare("INSERT INTO debates (question, conclusion, created_at) VALUES (?, ?, ?) RETURNING id")
     .run(question, conclusion, createdAt);
   const debateId = Number(result.lastInsertRowid);
   const insertTurn = db.prepare(`
@@ -953,6 +901,7 @@ export function createKnowledgeSource(
         summary = excluded.summary,
         tags = excluded.tags,
         updated_at = excluded.updated_at
+      RETURNING id
     `
     )
     .run(
@@ -1114,118 +1063,14 @@ export function updateDebateInsightStatus(id: string, status: DebateInsightStatu
   return mapDebateInsight(row as Record<string, unknown>);
 }
 
-// ── Agent Opinions ───────────────────────────────────────────────────────────
-
-function mapAgentOpinion(row: Record<string, unknown>): AgentOpinion {
-  let tags: string[] = [];
-  let evidenceRefs: string[] = [];
-  let scoreJson: Record<string, unknown> | undefined;
-  try { const p = JSON.parse(String(row.tags ?? "[]")) as unknown; if (Array.isArray(p)) tags = p.map(String); } catch { tags = []; }
-  try { const p = JSON.parse(String(row.evidence_refs ?? "[]")) as unknown; if (Array.isArray(p)) evidenceRefs = p.map(String); } catch { evidenceRefs = []; }
-  try { if (row.score_json) scoreJson = JSON.parse(String(row.score_json)) as Record<string, unknown>; } catch { scoreJson = undefined; }
-  const confidence = String(row.confidence ?? "medium");
-  const status = String(row.status ?? "draft");
-  return {
-    id: String(row.id),
-    conversationId: row.conversation_id ? String(row.conversation_id) : undefined,
-    messageId: row.message_id ? String(row.message_id) : undefined,
-    agentId: String(row.agent_id),
-    domainId: row.domain_id ? String(row.domain_id) : undefined,
-    question: String(row.question),
-    claim: String(row.claim),
-    rationale: row.rationale ? String(row.rationale) : undefined,
-    evidenceRefs,
-    confidence: confidence === "high" || confidence === "low" ? confidence : "medium",
-    scoreJson,
-    tags,
-    status: status === "approved" || status === "deprecated" || status === "rejected" ? status : "draft",
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
-  };
-}
-
-export function createAgentOpinion(input: NewAgentOpinion): AgentOpinion {
-  const db = getDb();
-  const now = new Date().toISOString();
-  const id = randomUUID();
-  db.prepare(`
-    INSERT INTO agent_opinions (
-      id, conversation_id, message_id, agent_id, domain_id, question, claim,
-      rationale, evidence_refs, confidence, score_json, tags, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id, input.conversationId ?? null, input.messageId ?? null, input.agentId,
-    input.domainId ?? null, input.question, input.claim,
-    input.rationale ?? null, JSON.stringify(input.evidenceRefs),
-    input.confidence, input.scoreJson ? JSON.stringify(input.scoreJson) : null,
-    JSON.stringify(input.tags), input.status, now, now
-  );
-  const row = db.prepare("SELECT * FROM agent_opinions WHERE id = ?").get(id);
-  return mapAgentOpinion(row as Record<string, unknown>);
-}
-
-export function listAgentOpinions(params: {
-  agentId?: string;
-  domainId?: string;
-  query?: string;
-  status?: string;
-  limit?: number;
-} = {}): AgentOpinion[] {
-  const db = getDb();
-  const rows = db.prepare("SELECT * FROM agent_opinions ORDER BY created_at DESC").all() as Record<string, unknown>[];
-  const opinions = rows.map(mapAgentOpinion);
-  const terms = params.query ? tokenizeQuery(params.query) : [];
-
-  return opinions
-    .filter((item) => {
-      if (params.agentId && item.agentId !== params.agentId) return false;
-      if (params.domainId && item.domainId !== params.domainId) return false;
-      if (params.status && item.status !== params.status) return false;
-      if (terms.length === 0) return true;
-      const haystack = [item.claim, item.rationale ?? "", item.tags.join(" ")].join(" ").toLowerCase();
-      return terms.some((term) => haystack.includes(term));
-    })
-    .map((item) => {
-      if (terms.length === 0) return { item, score: 0 };
-      const claim = item.claim.toLowerCase();
-      const rationale = (item.rationale ?? "").toLowerCase();
-      const tags = item.tags.join(" ").toLowerCase();
-      const score = terms.reduce((total, term) => {
-        const claimBoost = claim.includes(term) ? 4 : 0;
-        const rationaleBoost = rationale.includes(term) ? 2 : 0;
-        const tagBoost = tags.includes(term) ? 3 : 0;
-        const agentBoost = params.agentId && item.agentId === params.agentId ? 2 : 0;
-        const confidenceBoost = item.confidence === "high" ? 3 : 0;
-        return total + claimBoost + rationaleBoost + tagBoost + agentBoost + confidenceBoost;
-      }, 0);
-      return { item, score };
-    })
-    .sort((a, b) => b.score - a.score)
-    .map(({ item }) => item)
-    .slice(0, params.limit ?? 50);
-}
-
 // ── Super Agent Answers ──────────────────────────────────────────────────────
-
-function parseJsonArray(raw: unknown): string[] {
-  try {
-    const parsed = JSON.parse(String(raw ?? "[]")) as unknown;
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch { return []; }
-}
 
 function mapSuperAgentAnswer(row: Record<string, unknown>): SuperAgentAnswer {
   return {
     id: String(row.id),
     question: String(row.question),
-    domainId: row.domain_id ? String(row.domain_id) : undefined,
     answerMarkdown: String(row.answer_markdown),
-    referencedArchiveIds: parseJsonArray(row.referenced_archive_ids),
-    referencedEvidenceIds: parseJsonArray(row.referenced_evidence_ids),
-    referencedDebateIds: parseJsonArray(row.referenced_debate_ids),
-    referencedInsightIds: parseJsonArray(row.referenced_insight_ids),
-    referencedOpinionIds: parseJsonArray(row.referenced_opinion_ids),
-    answerType: String(row.answer_type ?? "future_life_answer"),
+    answerType: String(row.answer_type ?? "scenario"),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
@@ -1236,20 +1081,9 @@ export function createSuperAgentAnswer(input: NewSuperAgentAnswer & { id?: strin
   const now = new Date().toISOString();
   const id = input.id ?? randomUUID();
   db.prepare(`
-    INSERT INTO super_agent_answers (
-      id, question, domain_id, answer_markdown,
-      referenced_archive_ids, referenced_evidence_ids, referenced_debate_ids,
-      referenced_insight_ids, referenced_opinion_ids, answer_type, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id, input.question, input.domainId ?? null, input.answerMarkdown,
-    JSON.stringify(input.referencedArchiveIds),
-    JSON.stringify(input.referencedEvidenceIds),
-    JSON.stringify(input.referencedDebateIds),
-    JSON.stringify(input.referencedInsightIds),
-    JSON.stringify(input.referencedOpinionIds),
-    input.answerType, now, now
-  );
+    INSERT INTO super_agent_answers (id, question, answer_markdown, answer_type, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, input.question, input.answerMarkdown, input.answerType, now, now);
   const row = db.prepare("SELECT * FROM super_agent_answers WHERE id = ?").get(id);
   return mapSuperAgentAnswer(row as Record<string, unknown>);
 }
@@ -1266,7 +1100,7 @@ export function listSuperAgentAnswers(limit = 30): SuperAgentAnswer[] {
     .map(mapSuperAgentAnswer);
 }
 
-// ── Domain Categories ────────────────────────────────────────────────────────
+// ── Migration Data (knowledge_sources seed) ──────────────────────────────────
 
 type MigrationData = {
   categories: Record<string, { name: string; sub: string; type: string; insight: string }>;
@@ -1304,7 +1138,7 @@ function resolveSourceType(source: string): string {
   const s = source.toLowerCase();
   if (["mckinsey", "deloitte", "bain", "zuora", "grand view"].some((k) => s.includes(k))) return "industry_report";
   if (["oecd", "unesco", "kaist", "mdpi", "scientific", "nature", "gallup", "behavioral"].some((k) => s.includes(k))) return "research";
-  if (["reuters", "verge", "techradar", "sun", "asia economy", "techradar"].some((k) => s.includes(k))) return "news";
+  if (["reuters", "verge", "techradar", "sun", "asia economy"].some((k) => s.includes(k))) return "news";
   return "external_source";
 }
 
@@ -1324,30 +1158,21 @@ function buildSummary(description: string, body: string, metrics: Array<{ value:
   return parts.join("\n\n").slice(0, 1200);
 }
 
-function seedMigrationData(db: DatabaseSync) {
-  const migrationPath = join(process.cwd(), "data", "migraion_data.json");
-  if (!existsSync(migrationPath)) return;
+function seedMigrationData(db: PostgresSync) {
+  const migrationPath = resolveDataFile("migraion_data.json");
+  if (!migrationPath) return;
 
   const raw = readFileSync(migrationPath, "utf8");
   const data = JSON.parse(raw) as MigrationData;
   const now = new Date().toISOString();
 
-  // Seed domain_categories
-  const insertCategory = db.prepare(`
-    INSERT OR IGNORE INTO domain_categories (id, name, sub, type, insight, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  for (const [id, cat] of Object.entries(data.categories)) {
-    insertCategory.run(id, cat.name, cat.sub, cat.type, cat.insight, now);
-  }
-
-  // Seed cases as knowledge_sources
   const insertSource = db.prepare(`
-    INSERT OR IGNORE INTO knowledge_sources (
+    INSERT INTO knowledge_sources (
       agent_id, title, url, source_type, reliability, priority,
       summary, tags, domain_id, created_at, updated_at
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (agent_id, url) DO NOTHING
   `);
 
   for (const c of data.cases) {
@@ -1355,48 +1180,10 @@ function seedMigrationData(db: DatabaseSync) {
     if (!catEntry) continue;
     const agentId = resolveAgentIdForCategory(catEntry.type);
     const summary = buildSummary(c.description, c.body, c.metrics);
-    const reliability = resolveReliability(c.source);
-    const sourceType = resolveSourceType(c.source);
-    const priority = resolvePriority(c.kpi_value);
     insertSource.run(
-      agentId,
-      c.title,
-      c.url,
-      sourceType,
-      reliability,
-      priority,
-      summary,
-      JSON.stringify(c.tags),
-      c.category,
-      now,
-      now
+      agentId, c.title, c.url,
+      resolveSourceType(c.source), resolveReliability(c.source), resolvePriority(c.kpi_value),
+      summary, JSON.stringify(c.tags), c.category, now, now
     );
   }
-}
-
-export function listDomainCategories(): DomainCategory[] {
-  const db = getDb();
-  return (db.prepare("SELECT * FROM domain_categories ORDER BY id").all() as Record<string, unknown>[]).map((row) => ({
-    id: String(row.id),
-    name: String(row.name),
-    sub: String(row.sub ?? ""),
-    type: String(row.type ?? ""),
-    insight: String(row.insight ?? ""),
-    createdAt: String(row.created_at)
-  }));
-}
-
-export function getDomainCategory(id: string): DomainCategory | null {
-  const db = getDb();
-  const row = db.prepare("SELECT * FROM domain_categories WHERE id = ?").get(id);
-  if (!row) return null;
-  const r = row as Record<string, unknown>;
-  return {
-    id: String(r.id),
-    name: String(r.name),
-    sub: String(r.sub ?? ""),
-    type: String(r.type ?? ""),
-    insight: String(r.insight ?? ""),
-    createdAt: String(r.created_at)
-  };
 }
