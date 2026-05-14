@@ -107,8 +107,9 @@ CREATE TABLE IF NOT EXISTS debate_insights (
 CREATE TABLE IF NOT EXISTS super_agent_answers (
   id TEXT PRIMARY KEY,
   question TEXT NOT NULL,
-  answer_markdown TEXT NOT NULL,
-  answer_type TEXT DEFAULT 'scenario',
+  scenario_markdown TEXT NOT NULL DEFAULT '',
+  business_markdown TEXT NOT NULL DEFAULT '',
+  executive_markdown TEXT NOT NULL DEFAULT '',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );

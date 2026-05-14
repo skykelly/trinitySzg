@@ -5,9 +5,9 @@ import type { SuperAgentAnswerRequest } from "@/lib/super-agent";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  let body: Partial<SuperAgentAnswerRequest> & { skipSave?: boolean };
+  let body: Partial<SuperAgentAnswerRequest>;
   try {
-    body = (await request.json()) as Partial<SuperAgentAnswerRequest> & { skipSave?: boolean };
+    body = (await request.json()) as Partial<SuperAgentAnswerRequest>;
   } catch {
     return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
@@ -15,8 +15,6 @@ export async function POST(request: Request) {
   if (!body.question?.trim()) {
     return NextResponse.json({ error: "question이 필요합니다." }, { status: 400 });
   }
-
-  const skipSave = body.skipSave === true;
 
   const input: SuperAgentAnswerRequest = {
     question: body.question.trim(),
@@ -31,7 +29,7 @@ export async function POST(request: Request) {
       try {
         const result = await streamAnswerWithSuperAgent(input, (token) => {
           controller.enqueue(encoder.encode(token));
-        }, skipSave);
+        });
         const meta = JSON.stringify({ answerId: result.answerId, references: result.references });
         controller.enqueue(encoder.encode(`\x02${meta}\x03`));
         controller.close();

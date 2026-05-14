@@ -20,6 +20,13 @@ export interface SuperAgentAnswerResponse {
   };
 }
 
+export interface SaveAnswersInput {
+  question: string;
+  scenarioMarkdown: string;
+  businessMarkdown: string;
+  executiveMarkdown: string;
+}
+
 export function buildSuperAgentPrompt(params: {
   input: SuperAgentAnswerRequest;
   sources: KnowledgeSource[];
@@ -177,10 +184,10 @@ function buildContext(input: SuperAgentAnswerRequest) {
   return { agent, sources, prompt, references };
 }
 
+// 스트리밍 전용 — DB 저장 없음
 export async function streamAnswerWithSuperAgent(
   input: SuperAgentAnswerRequest,
-  onToken: (token: string) => void | Promise<void>,
-  skipSave = false
+  onToken: (token: string) => void | Promise<void>
 ): Promise<SuperAgentAnswerResponse> {
   const { agent, sources, prompt, references } = buildContext(input);
   const answerId = randomUUID();
@@ -191,16 +198,20 @@ export async function streamAnswerWithSuperAgent(
     onToken
   });
 
-  if (!skipSave) {
-    createSuperAgentAnswer({
-      id: answerId,
-      question: input.question,
-      answerMarkdown,
-      answerType: input.outputType ?? "scenario"
-    });
-  }
-
   return { answerId, answerMarkdown, references };
+}
+
+// 3개 탭 내용을 하나의 레코드로 저장
+export function saveAllAnswers(input: SaveAnswersInput): string {
+  const id = randomUUID();
+  createSuperAgentAnswer({
+    id,
+    question: input.question,
+    scenarioMarkdown: input.scenarioMarkdown,
+    businessMarkdown: input.businessMarkdown,
+    executiveMarkdown: input.executiveMarkdown
+  });
+  return id;
 }
 
 export async function answerWithSuperAgent(
@@ -215,8 +226,9 @@ export async function answerWithSuperAgent(
 
   const saved = createSuperAgentAnswer({
     question: input.question,
-    answerMarkdown,
-    answerType: input.outputType ?? "scenario"
+    scenarioMarkdown: answerMarkdown,
+    businessMarkdown: "",
+    executiveMarkdown: ""
   });
 
   return { answerId: saved.id, answerMarkdown, references };

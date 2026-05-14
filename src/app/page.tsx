@@ -555,12 +555,13 @@ export default function Home() {
       includeDebateKnowledge: superIncludeDebate
     };
 
-    const callOne = async (outputType: string, key: "scenario" | "business" | "executive", skipSave = false) => {
+    // 스트리밍 전용 — 최종 마크다운 반환, DB 저장 없음
+    const callOne = async (outputType: string, key: "scenario" | "business" | "executive"): Promise<string> => {
       try {
         const res = await fetch("/api/super-agent/answer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...base, outputType, skipSave })
+          body: JSON.stringify({ ...base, outputType })
         });
         if (!res.ok || !res.body) {
           const err = await res.json().catch(() => ({ error: "답변 생성 실패" })) as { error?: string };
@@ -576,7 +577,6 @@ export default function Home() {
           const { done, value } = await reader.read();
           if (done) break;
           raw += decoder.decode(value, { stream: true });
-          // Remove metadata marker before displaying
           const metaStart = raw.indexOf("\x02");
           const displayText = metaStart >= 0 ? raw.slice(0, metaStart) : raw;
           if (firstToken && displayText.length > 0) {
@@ -585,39 +585,67 @@ export default function Home() {
           }
           setAnswerByType(prev => ({
             ...prev,
-            [key]: { answerId: prev[key]?.answerId ?? "", answerMarkdown: displayText, references: prev[key]?.references ?? { knowledgeSources: [], debateInsights: [] } }
+            [key]: { answerId: "", answerMarkdown: displayText, references: prev[key]?.references ?? { knowledgeSources: [], debateInsights: [] } }
           }));
         }
 
-        // Parse trailing metadata
         raw += decoder.decode();
         const metaStart = raw.indexOf("\x02");
         const metaEnd = raw.lastIndexOf("\x03");
         const displayText = metaStart >= 0 ? raw.slice(0, metaStart) : raw;
-        let answerId = "";
         let references: SuperAnswerResult["references"] = { knowledgeSources: [], debateInsights: [] };
         if (metaStart >= 0 && metaEnd > metaStart) {
           try {
-            const meta = JSON.parse(raw.slice(metaStart + 1, metaEnd)) as { answerId?: string; references?: SuperAnswerResult["references"] };
-            answerId = meta.answerId ?? "";
+            const meta = JSON.parse(raw.slice(metaStart + 1, metaEnd)) as { references?: SuperAnswerResult["references"] };
             references = meta.references ?? references;
-          } catch { /* ignore parse errors */ }
+          } catch { /* ignore */ }
         }
         setLoadingByType(prev => ({ ...prev, [key]: false }));
-        setAnswerByType(prev => ({ ...prev, [key]: { answerId, answerMarkdown: displayText, references } }));
+        setAnswerByType(prev => ({ ...prev, [key]: { answerId: "", answerMarkdown: displayText, references } }));
+        return displayText;
       } catch (error) {
         setNotice(error instanceof Error ? error.message : `${key} 답변 생성 실패`);
         setLoadingByType(prev => ({ ...prev, [key]: false }));
+        return "";
       }
     };
 
-    // scenario만 DB 저장, business/executive는 skipSave=true
-    // 모두 완료되면 history 갱신
-    Promise.allSettled([
-      callOne("scenario", "scenario"),
-      callOne("business_opportunity", "business", true),
-      callOne("executive_brief", "executive", true)
-    ]).then(() => loadRecents());
+    // 3개 병렬 스트리밍 → 완료 후 1개 레코드로 저장
+    let scenarioMd = "", businessMd = "", executiveMd = "";
+    await Promise.allSettled([
+      callOne("scenario", "scenario").then(md => { scenarioMd = md; }),
+      callOne("business_opportunity", "business").then(md => { businessMd = md; }),
+      callOne("executive_brief", "executive").then(md => { executiveMd = md; })
+    ]);
+
+    // 하나라도 성공했으면 DB에 저장
+    if (scenarioMd || businessMd || executiveMd) {
+      try {
+        const saveRes = await fetch("/api/super-agent/answers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: superQuestion.trim(),
+            scenarioMarkdown: scenarioMd,
+            businessMarkdown: businessMd,
+            executiveMarkdown: executiveMd
+          })
+        });
+        if (saveRes.ok) {
+          const { id } = await saveRes.json() as { id?: string };
+          // answerId를 각 탭 상태에 반영
+          if (id) {
+            setAnswerByType(prev => ({
+              scenario: prev.scenario ? { ...prev.scenario, answerId: id } : null,
+              business: prev.business ? { ...prev.business, answerId: id } : null,
+              executive: prev.executive ? { ...prev.executive, answerId: id } : null
+            }));
+          }
+        }
+      } catch { /* 저장 실패는 조용히 무시 */ }
+    }
+
+    await loadRecents();
   }
 
 
@@ -788,14 +816,16 @@ export default function Home() {
         setQuestion(data.debate.question);
       } else if (item.kind === "answer") {
         const res = await fetch(`/api/super-agent/answers/${item.id}`);
-        const data = (await res.json()) as { answer?: { answerMarkdown: string; id: string }; error?: string };
+        const data = (await res.json()) as { answer?: { id: string; scenarioMarkdown: string; businessMarkdown: string; executiveMarkdown: string }; error?: string };
         if (!res.ok || !data.answer) throw new Error(data.error ?? "답변을 불러오지 못했습니다.");
+        const { id, scenarioMarkdown, businessMarkdown, executiveMarkdown } = data.answer;
+        const refs = { knowledgeSources: [], debateInsights: [] };
         setTab("future");
         setSuperQuestion(item.question);
         setAnswerByType({
-          scenario: { answerId: data.answer.id, answerMarkdown: data.answer.answerMarkdown, references: { knowledgeSources: [], debateInsights: [] } },
-          business: null,
-          executive: null
+          scenario: scenarioMarkdown ? { answerId: id, answerMarkdown: scenarioMarkdown, references: refs } : null,
+          business: businessMarkdown ? { answerId: id, answerMarkdown: businessMarkdown, references: refs } : null,
+          executive: executiveMarkdown ? { answerId: id, answerMarkdown: executiveMarkdown, references: refs } : null
         });
         setResultTab("scenario");
       } else {
@@ -1592,7 +1622,7 @@ function recentTitle(item: RecentItem) {
 
 function recentMeta(item: RecentItem) {
   if (item.kind === "discussion") return `${item.turnCount}개 발언`;
-  if (item.kind === "answer") return item.answerType;
+  if (item.kind === "answer") return "Scenario · Business · Executive";
   return `${item.agentName} · ${item.messageCount}개 메시지`;
 }
 

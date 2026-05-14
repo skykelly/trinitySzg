@@ -125,7 +125,6 @@ export type ConversationResult = {
 export type SuperAgentAnswerSummary = {
   id: string;
   question: string;
-  answerType: string;
   createdAt: string;
 };
 
@@ -157,8 +156,9 @@ export type NewDebateInsight = Omit<DebateInsight, "id" | "createdAt" | "updated
 export interface SuperAgentAnswer {
   id: string;
   question: string;
-  answerMarkdown: string;
-  answerType: string;
+  scenarioMarkdown: string;
+  businessMarkdown: string;
+  executiveMarkdown: string;
   createdAt: string;
   updatedAt: string;
 }

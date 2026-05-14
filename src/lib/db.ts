@@ -102,11 +102,16 @@ function getDb() {
   seedKnowledgeSources(db);
   seedMigrationData(db);
 
+  // Add new columns for combined answer storage
+  ensureColumn(db, "super_agent_answers", "scenario_markdown", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "super_agent_answers", "business_markdown", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "super_agent_answers", "executive_markdown", "TEXT NOT NULL DEFAULT ''");
+
   // Drop deprecated tables and columns — wrapped in try/catch so init never fails due to cleanup
   try {
     db.exec("DROP TABLE IF EXISTS agent_opinions");
     db.exec("DROP TABLE IF EXISTS domain_categories");
-    for (const col of ["domain_id", "referenced_archive_ids", "referenced_evidence_ids", "referenced_debate_ids", "referenced_insight_ids", "referenced_opinion_ids"]) {
+    for (const col of ["domain_id", "referenced_archive_ids", "referenced_evidence_ids", "referenced_debate_ids", "referenced_insight_ids", "referenced_opinion_ids", "answer_markdown", "answer_type"]) {
       dropColumnIfExists(db, "super_agent_answers", col);
     }
   } catch { /* cleanup is best-effort; proceed even if it fails */ }
@@ -591,7 +596,6 @@ export function listRecents(limit = 30): RecentItem[] {
       kind: "answer" as const,
       id: item.id,
       question: item.question,
-      answerType: item.answerType,
       createdAt: item.createdAt
     }));
   } catch {
@@ -1069,8 +1073,9 @@ function mapSuperAgentAnswer(row: Record<string, unknown>): SuperAgentAnswer {
   return {
     id: String(row.id),
     question: String(row.question),
-    answerMarkdown: String(row.answer_markdown),
-    answerType: String(row.answer_type ?? "scenario"),
+    scenarioMarkdown: String(row.scenario_markdown ?? ""),
+    businessMarkdown: String(row.business_markdown ?? ""),
+    executiveMarkdown: String(row.executive_markdown ?? ""),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };
@@ -1081,9 +1086,9 @@ export function createSuperAgentAnswer(input: NewSuperAgentAnswer & { id?: strin
   const now = new Date().toISOString();
   const id = input.id ?? randomUUID();
   db.prepare(`
-    INSERT INTO super_agent_answers (id, question, answer_markdown, answer_type, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, input.question, input.answerMarkdown, input.answerType, now, now);
+    INSERT INTO super_agent_answers (id, question, scenario_markdown, business_markdown, executive_markdown, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, input.question, input.scenarioMarkdown, input.businessMarkdown, input.executiveMarkdown, now, now);
   const row = db.prepare("SELECT * FROM super_agent_answers WHERE id = ?").get(id);
   return mapSuperAgentAnswer(row as Record<string, unknown>);
 }
