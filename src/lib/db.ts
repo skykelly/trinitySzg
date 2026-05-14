@@ -366,19 +366,36 @@ function mapKnowledgeChunk(row: Record<string, unknown>): KnowledgeChunk {
 
 export function getAgents(): Agent[] {
   const db = getDb();
-  return db
-    .prepare("SELECT * FROM agents ORDER BY id")
-    .all()
-    .map((row) => enrichAgentWithKnowledgeSources(mapAgent(row as Record<string, unknown>)));
+  const agentRows = db.prepare("SELECT * FROM agents ORDER BY id").all() as Record<string, unknown>[];
+
+  // 모든 에이전트의 knowledge source를 한 번에 로드 (N+1 → 2쿼리)
+  const sourceRows = db.prepare(`
+    SELECT knowledge_sources.*, COUNT(knowledge_chunks.id) AS chunk_count
+    FROM knowledge_sources
+    LEFT JOIN knowledge_chunks ON knowledge_chunks.source_id = knowledge_sources.id
+    GROUP BY knowledge_sources.id
+    ORDER BY agent_id ASC, priority ASC, title ASC
+  `).all() as Record<string, unknown>[];
+
+  const sourcesByAgent = new Map<string, KnowledgeSource[]>();
+  for (const row of sourceRows) {
+    const agentId = String(row.agent_id);
+    const list = sourcesByAgent.get(agentId) ?? [];
+    list.push(mapKnowledgeSource(row));
+    sourcesByAgent.set(agentId, list);
+  }
+
+  return agentRows.map((row) => {
+    const agent = mapAgent(row);
+    return { ...agent, knowledgeSources: sourcesByAgent.get(agent.id) ?? [] };
+  });
 }
 
 export function getAgent(id: string): Agent | null {
   const db = getDb();
   const row = db.prepare("SELECT * FROM agents WHERE id = ?").get(id);
-  return row ? enrichAgentWithKnowledgeSources(mapAgent(row as Record<string, unknown>)) : null;
-}
-
-function enrichAgentWithKnowledgeSources(agent: Agent): Agent {
+  if (!row) return null;
+  const agent = mapAgent(row as Record<string, unknown>);
   return { ...agent, knowledgeSources: listKnowledgeSources(agent.id) };
 }
 
@@ -638,25 +655,18 @@ export function listKnowledgeSources(agentId?: string): KnowledgeSource[] {
   return rows.map((row) => mapKnowledgeSource(row as Record<string, unknown>));
 }
 
-export function searchKnowledgeSources(query: string, agentId?: string, limit = 6): KnowledgeSource[] {
-  const terms = tokenizeQuery(query);
-  const sources = listKnowledgeSources(agentId);
+// 소스 + 청크가 이미 로드된 상태에서 점수 계산 (쿼리 없음)
+function rankSources(
+  sources: KnowledgeSource[],
+  chunksBySource: Map<number, KnowledgeChunk[]>,
+  terms: string[],
+  limit: number
+): KnowledgeSource[] {
   if (terms.length === 0) return sources.slice(0, limit);
-  const chunksBySource = groupChunksBySource(searchKnowledgeChunks(query, agentId, limit * 3));
-
   return sources
     .map((source) => {
       const matchedChunks = chunksBySource.get(source.id) ?? [];
-      const haystack = [
-        source.title,
-        source.sourceType,
-        source.reliability,
-        source.summary,
-        source.tags.join(" "),
-        matchedChunks.map((chunk) => chunk.content).join(" ")
-      ]
-        .join(" ")
-        .toLowerCase();
+      const haystack = [source.title, source.sourceType, source.reliability, source.summary, source.tags.join(" "), matchedChunks.map((c) => c.content).join(" ")].join(" ").toLowerCase();
       const title = source.title.toLowerCase();
       const tags = source.tags.join(" ").toLowerCase();
       const score = terms.reduce((total, term) => {
@@ -674,6 +684,43 @@ export function searchKnowledgeSources(query: string, agentId?: string, limit = 
     .sort((a, b) => b.score - a.score || a.source.priority - b.source.priority || a.source.title.localeCompare(b.source.title))
     .slice(0, limit)
     .map((item) => item.source);
+}
+
+// 여러 에이전트의 소스를 한 번의 청크 쿼리로 검색 (토론 전용 최적화)
+// 에이전트들이 이미 knowledgeSources를 가지고 있을 때 사용
+export function searchKnowledgeSourcesForAgents(
+  query: string,
+  agents: Array<{ id: string; knowledgeSources?: KnowledgeSource[] }>,
+  limitPerAgent = 6
+): Map<string, KnowledgeSource[]> {
+  const terms = tokenizeQuery(query);
+  const result = new Map<string, KnowledgeSource[]>();
+
+  // 쿼리 키워드가 없으면 각 에이전트 소스 상위 N개 반환 (쿼리 0회)
+  if (terms.length === 0) {
+    for (const agent of agents) {
+      result.set(agent.id, (agent.knowledgeSources ?? []).slice(0, limitPerAgent));
+    }
+    return result;
+  }
+
+  // 모든 에이전트 청크를 단 1회 쿼리로 검색
+  const totalLimit = limitPerAgent * 3 * agents.length;
+  const allChunks = searchKnowledgeChunks(query, undefined, totalLimit);
+  const chunksBySource = groupChunksBySource(allChunks);
+
+  for (const agent of agents) {
+    result.set(agent.id, rankSources(agent.knowledgeSources ?? [], chunksBySource, terms, limitPerAgent));
+  }
+  return result;
+}
+
+export function searchKnowledgeSources(query: string, agentId?: string, limit = 6): KnowledgeSource[] {
+  const terms = tokenizeQuery(query);
+  const sources = listKnowledgeSources(agentId);
+  if (terms.length === 0) return sources.slice(0, limit);
+  const chunksBySource = groupChunksBySource(searchKnowledgeChunks(query, agentId, limit * 3));
+  return rankSources(sources, chunksBySource, terms, limit);
 }
 
 export function getKnowledgeSource(id: number): KnowledgeSource | null {

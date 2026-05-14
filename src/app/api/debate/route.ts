@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createDebate, getAgents, searchKnowledgeSources } from "@/lib/db";
+import { createDebate, getAgents, searchKnowledgeSourcesForAgents } from "@/lib/db";
 import { streamDebate } from "@/lib/debate";
 
 export const runtime = "nodejs";
@@ -17,10 +17,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "question이 필요합니다." }, { status: 400 });
     }
 
-    const agents = getAgents().map((agent) => ({
+    // getAgents(): 2쿼리 (에이전트 + 전체 소스 한 번에)
+    // searchKnowledgeSourcesForAgents(): 1쿼리 (3개 에이전트 청크 검색을 한 번에)
+    // 총 3쿼리 (기존: 5 + 6 = 11쿼리)
+    const agents = getAgents();
+    const sourcesByAgent = searchKnowledgeSourcesForAgents(question, agents, 6);
+    const enrichedAgents = agents.map((agent) => ({
       ...agent,
-      knowledgeSources: searchKnowledgeSources(question, agent.id, 6)
+      knowledgeSources: sourcesByAgent.get(agent.id) ?? agent.knowledgeSources ?? []
     }));
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -32,7 +38,7 @@ export async function POST(request: Request) {
           const mode = body.debateMode ?? "Feasibility";
           const turns_hint = body.debateDepth ? `\nTurns: ${body.debateDepth}` : "";
           const enrichedQuestion = `${question}${turns_hint}`;
-          const { turns, conclusion } = await streamDebate(enrichedQuestion, agents, (token) => send("token", token), mode);
+          const { turns, conclusion } = await streamDebate(enrichedQuestion, enrichedAgents, (token) => send("token", token), mode);
           const debate = createDebate(question, turns, conclusion);
           send("done", debate);
           controller.close();

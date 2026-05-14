@@ -120,12 +120,13 @@ export default function Home() {
   );
 
   useEffect(() => {
-    loadAgents();
-    loadRecents();
+    // 독립 호출이므로 병렬 실행 (300~500ms 절약)
+    Promise.all([loadAgents(), loadRecents()]);
   }, []);
 
   useEffect(() => {
-    if (tab === "knowledge") loadAllKmSources();
+    // 첫 진입 시에만 로드 (탭 재방문 시 재로드 방지)
+    if (tab === "knowledge" && allKmSources.length === 0) loadAllKmSources();
   }, [tab]);
 
   async function loadAgents() {
