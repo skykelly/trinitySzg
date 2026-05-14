@@ -1166,7 +1166,7 @@ export default function Home() {
           </div>
           <section className="workspace">
           <aside className="side">
-            {agents.map((agent) => (
+            {agents.filter(a => a.agentType !== "super_agent").map((agent) => (
               <button
                 className={selectedAgentId === agent.id ? "agent active" : "agent"}
                 key={agent.id}
